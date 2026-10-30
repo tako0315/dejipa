@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="おとの わ">
+<meta name="format-detection" content="telephone=no">
+<title>おとの わ</title>
+<style>
+  *{-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;position:fixed;inset:0;width:100%;height:100%;overflow:hidden;background:#070712;
+    overscroll-behavior:none;-webkit-text-size-adjust:100%;
+    touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+  button{touch-action:manipulation}
+  canvas#c{display:block;width:100%;height:100%}
+  #ui{position:fixed;top:1.2vmin;right:1.2vmin;display:flex;gap:1vmin;opacity:0;pointer-events:none;transition:opacity .25s;z-index:5}
+  #ui.show{opacity:1;pointer-events:auto}
+  #ui button{font:bold max(2vmin,11px) system-ui,sans-serif;border:0;border-radius:1.2vmin;padding:.9vmin 1.4vmin;
+    background:rgba(255,255,255,.9);color:#2a3f5a;cursor:pointer}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="ui">
+  <button id="bSound" title="音 (M)">🔊</button>
+  <button id="bFull" title="全画面 (F)">⛶</button>
+  <button id="bHome" title="メニューへ (Esc)">メニュー</button>
+</div>
+<script>
+/* ============================================================
+   共通の土台（kit）
+   ・画面の大きさ（スマホのたて・横、プロジェクター）に合わせる
+   ・マウス／マルチタッチの入力（はやさ つき）
+   ・音（WebAudio で合成。音声ファイルなし）
+   ・だれもさわらないと、自動でうごく「おためし」と、ヒントの文字
+   ・iPhone / iPad（Safari）むけの調整
+   各コンテンツは K.start({ ... }) をよぶだけ
+   ============================================================ */
+'use strict';
+const K = (() => {
+  const cv = document.getElementById('c');
+  let ctx = cv.getContext('2d');
+  const K = { cv, ctx, W: 0, H: 0, U: 1, DPR: 1, t: 0, dt: 0, idle: 0, portrait: false };
+  let app = null, last = 0, lastInput = -1e9;
+
+  // ---------- 道具 ----------
+  K.rand = (a, b) => a + Math.random() * (b - a);
+  K.randi = (a, b) => Math.floor(K.rand(a, b + 1));
+  K.pick = a => a[Math.floor(Math.random() * a.length)];
+  K.clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  K.lerp = (a, b, t) => a + (b - a) * t;
+  K.dist = (ax, ay, bx, by) => Math.hypot(ax - bx, ay - by);
+  K.hsl = (h, s, l, a = 1) => `hsla(${h},${s}%,${l}%,${a})`;
+  K.ease = t => 1 - Math.pow(1 - K.clamp(t, 0, 1), 3);
+  K.back = t => { t = K.clamp(t, 0, 1); const c = 1.70158; return 1 + (c + 1) * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2); };
+  K.FONT = '"Hiragino Maru Gothic ProN","Hiragino Maru Gothic Pro","BIZ UDPGothic","Meiryo",system-ui,sans-serif';
+  K.text = (t, x, y, size, fill = '#fff', stroke = 'rgba(0,0,0,.45)', lw = 0.18, align = 'center') => {
+    ctx.font = `900 ${size}px ${K.FONT}`; ctx.textAlign = align; ctx.textBaseline = 'middle';
+    if (stroke) { ctx.lineJoin = 'round'; ctx.lineWidth = size * lw; ctx.strokeStyle = stroke; ctx.strokeText(t, x, y); }
+    ctx.fillStyle = fill; ctx.fillText(t, x, y);
+  };
+  K.circle = (x, y, r, fill) => { ctx.beginPath(); ctx.arc(x, y, Math.max(0, r), 0, Math.PI * 2); ctx.fillStyle = fill; ctx.fill(); };
+  K.rrect = (x, y, w, h, r) => { ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(x, y, w, h, r); else ctx.rect(x, y, w, h); };
+  K.star = (x, y, r, n = 5, inner = 0.45, rot = -Math.PI / 2) => {
+    ctx.beginPath();
+    for (let i = 0; i < n * 2; i++) { const a = rot + i * Math.PI / n, rr = i % 2 ? r * inner : r; ctx.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); }
+    ctx.closePath();
+  };
+  K.canvas = (w, h) => { const c = document.createElement('canvas'); c.width = Math.max(1, Math.ceil(w)); c.height = Math.max(1, Math.ceil(h)); return c; };
+
+  // ---------- どうぶつの かお（中心 x,y 半径 r） ----------
+  // o: { blink:bool, mouth:'smile'|'open'|'o', look:[-1..1,-1..1], blush:bool }
+  K.ANIMALS = ['usagi', 'kuma', 'neko', 'inu', 'buta', 'kaeru', 'hiyoko', 'panda', 'risu', 'pengin'];
+  K.animal = (kind, x, y, r, o = {}) => {
+    const C = {
+      usagi: ['#fff', '#ffc4d6'], kuma: ['#b07a4f', '#e8c4a0'], neko: ['#ffb15c', '#fff1de'], inu: ['#e9c48f', '#fff6e6'],
+      buta: ['#ffb7c9', '#ff8fab'], kaeru: ['#7ed957', '#d9ffc9'], hiyoko: ['#ffe14d', '#ff9e2c'], panda: ['#fff', '#222'],
+      risu: ['#c9773e', '#ffe0bd'], pengin: ['#2b3a55', '#fff'],
+    }[kind] || ['#ccc', '#fff'];
+    const [a, b] = C, dk = '#2b2118';
+    ctx.save(); ctx.translate(x, y);
+    const ear = (ex, ey, rx, ry, rot, c1, c2) => { ctx.save(); ctx.translate(ex * r, ey * r); ctx.rotate(rot); ctx.fillStyle = c1; ctx.beginPath(); ctx.ellipse(0, 0, rx * r, ry * r, 0, 0, 7); ctx.fill(); if (c2) { ctx.fillStyle = c2; ctx.beginPath(); ctx.ellipse(0, ry * r * 0.1, rx * r * 0.55, ry * r * 0.65, 0, 0, 7); ctx.fill(); } ctx.restore(); };
+    if (kind === 'usagi') { ear(-0.38, -1.05, 0.2, 0.55, -0.15, a, b); ear(0.38, -1.05, 0.2, 0.55, 0.15, a, b); }
+    if (kind === 'kuma' || kind === 'risu') { ear(-0.7, -0.7, 0.28, 0.28, 0, a, b); ear(0.7, -0.7, 0.28, 0.28, 0, a, b); }
+    if (kind === 'panda') { ear(-0.7, -0.7, 0.28, 0.28, 0, b); ear(0.7, -0.7, 0.28, 0.28, 0, b); }
+    if (kind === 'neko') for (const s of [-1, 1]) { ctx.fillStyle = a; ctx.beginPath(); ctx.moveTo(s * 0.85 * r, -0.2 * r); ctx.lineTo(s * 0.7 * r, -1.05 * r); ctx.lineTo(s * 0.15 * r, -0.75 * r); ctx.fill(); ctx.fillStyle = '#ffc4d6'; ctx.beginPath(); ctx.moveTo(s * 0.7 * r, -0.4 * r); ctx.lineTo(s * 0.66 * r, -0.85 * r); ctx.lineTo(s * 0.35 * r, -0.7 * r); ctx.fill(); }
+    if (kind === 'inu') { ear(-0.85, -0.1, 0.25, 0.5, 0.3, '#a8743e'); ear(0.85, -0.1, 0.25, 0.5, -0.3, '#a8743e'); }
+    if (kind === 'buta') { ear(-0.6, -0.8, 0.22, 0.2, -0.5, a, b); ear(0.6, -0.8, 0.22, 0.2, 0.5, a, b); }
+    if (kind === 'kaeru') { K.circle(-0.45 * r, -0.75 * r, 0.33 * r, a); K.circle(0.45 * r, -0.75 * r, 0.33 * r, a); }
+    if (kind === 'hiyoko') { ctx.fillStyle = a; for (const s of [-1, 0, 1]) { ctx.beginPath(); ctx.ellipse(s * 0.15 * r, -1 * r, 0.08 * r, 0.2 * r, s * 0.5, 0, 7); ctx.fill(); } }
+    // かお
+    ctx.fillStyle = a; ctx.beginPath(); ctx.ellipse(0, 0, r, r * (kind === 'kaeru' ? 0.82 : 0.92), 0, 0, 7); ctx.fill();
+    if (kind === 'usagi' || kind === 'panda') { ctx.strokeStyle = 'rgba(0,0,0,0.08)'; ctx.lineWidth = r * 0.04; ctx.stroke(); }
+    if (kind === 'pengin') { ctx.fillStyle = b; ctx.beginPath(); ctx.ellipse(-0.3 * r, 0.05 * r, 0.42 * r, 0.6 * r, 0, 0, 7); ctx.ellipse(0.3 * r, 0.05 * r, 0.42 * r, 0.6 * r, 0, 0, 7); ctx.fill(); }
+    if (kind === 'inu' || kind === 'neko' || kind === 'risu' || kind === 'kuma') { ctx.fillStyle = b; ctx.beginPath(); ctx.ellipse(0, 0.35 * r, 0.42 * r, 0.32 * r, 0, 0, 7); ctx.fill(); }
+    const lk = o.look || [0, 0], ex = 0.36 * r, ey = -0.12 * r + lk[1] * 0.05 * r;
+    if (kind === 'panda') for (const s of [-1, 1]) { ctx.fillStyle = b; ctx.beginPath(); ctx.ellipse(s * ex, ey + 0.03 * r, 0.2 * r, 0.25 * r, s * -0.5, 0, 7); ctx.fill(); }
+    const eyeC = kind === 'panda' ? '#fff' : dk;
+    for (const s of [-1, 1]) {
+      const exx = s * ex + lk[0] * 0.05 * r, eyy = kind === 'kaeru' ? -0.75 * r : ey;
+      if (kind === 'kaeru') K.circle(s * 0.45 * r, eyy, 0.2 * r, '#fff');
+      if (o.blink) { ctx.strokeStyle = eyeC; ctx.lineWidth = 0.07 * r; ctx.lineCap = 'round'; ctx.beginPath(); ctx.arc(kind === 'kaeru' ? s * 0.45 * r : exx, eyy, 0.1 * r, Math.PI * 1.1, Math.PI * 1.9); ctx.stroke(); }
+      else { const X = kind === 'kaeru' ? s * 0.45 * r + lk[0] * 0.05 * r : exx; K.circle(X, eyy, 0.11 * r, eyeC); K.circle(X + 0.04 * r, eyy - 0.04 * r, 0.04 * r, kind === 'panda' ? '#222' : '#fff'); }
+    }
+    if (o.blush !== false) for (const s of [-1, 1]) K.circle(s * 0.6 * r, 0.22 * r, 0.13 * r, 'rgba(255,90,120,0.3)');
+    // はな・くち
+    const my = 0.35 * r;
+    if (kind === 'buta') { ctx.fillStyle = b; ctx.beginPath(); ctx.ellipse(0, 0.2 * r, 0.26 * r, 0.18 * r, 0, 0, 7); ctx.fill(); K.circle(-0.08 * r, 0.2 * r, 0.04 * r, '#c2185b'); K.circle(0.08 * r, 0.2 * r, 0.04 * r, '#c2185b'); }
+    else if (kind === 'hiyoko' || kind === 'pengin') { ctx.fillStyle = kind === 'hiyoko' ? b : '#ffb020'; ctx.beginPath(); ctx.moveTo(-0.14 * r, 0.12 * r); ctx.lineTo(0.14 * r, 0.12 * r); ctx.lineTo(0, (o.mouth === 'open' ? 0.4 : 0.3) * r); ctx.fill(); }
+    else if (kind !== 'kaeru') { ctx.fillStyle = kind === 'panda' ? '#222' : kind === 'usagi' ? '#ff8fab' : dk; ctx.beginPath(); ctx.ellipse(0, 0.2 * r, 0.09 * r, 0.065 * r, 0, 0, 7); ctx.fill(); }
+    if (!(kind === 'hiyoko' || kind === 'pengin')) {
+      const yy = kind === 'buta' ? 0.45 * r : kind === 'kaeru' ? 0.15 * r : my;
+      ctx.strokeStyle = dk; ctx.lineWidth = 0.06 * r; ctx.lineCap = 'round';
+      if (o.mouth === 'open' || o.mouth === 'o') { ctx.fillStyle = '#c2185b'; ctx.beginPath(); ctx.ellipse(0, yy + 0.04 * r, (o.mouth === 'o' ? 0.09 : 0.16) * r, (o.mouth === 'o' ? 0.1 : 0.13) * r, 0, 0, 7); ctx.fill(); }
+      else if (kind === 'kaeru') { ctx.beginPath(); ctx.arc(0, yy - 0.2 * r, 0.4 * r, 0.5, Math.PI - 0.5); ctx.stroke(); }
+      else { ctx.beginPath(); ctx.arc(-0.08 * r, yy - 0.05 * r, 0.08 * r, 0.2, Math.PI - 0.2); ctx.moveTo(0.16 * r * Math.cos(0) + 0.08 * r * (Math.cos(0.2) - 1) + 0.0, yy - 0.05 * r + 0.08 * r * Math.sin(0.2)); ctx.arc(0.08 * r, yy - 0.05 * r, 0.08 * r, 0.2, Math.PI - 0.2); ctx.stroke(); }
+    }
+    ctx.restore();
+  };
+
+  // べつの キャンバスに K.animal などを かくとき
+  K.withCtx = (c, fn) => { const o = ctx; ctx = c; try { fn(); } finally { ctx = o; } };
+  // ---------- ボタン（ゲームの えらぶ がめん など） ----------
+  K.btns = [];
+  K.btn = (x, y, w, h, label, col, act, o = {}) => {
+    const r = Math.min(h, w) * (o.round ?? 0.26);
+    ctx.fillStyle = 'rgba(40,40,80,0.15)'; K.rrect(x, y + h * 0.07, w, h, r); ctx.fill();
+    ctx.fillStyle = col; K.rrect(x, y, w, h, r); ctx.fill();
+    if (o.shine !== false) { ctx.fillStyle = 'rgba(255,255,255,0.22)'; K.rrect(x + h * 0.12, y + h * 0.08, w - h * 0.24, h * 0.25, h * 0.12); ctx.fill(); }
+    if (label !== '') K.text(label, x + w / 2, y + h / 2 + (o.dy || 0), o.size || Math.min(h * 0.42, w * 0.8 / Math.max(1, String(label).length)), o.fg || '#fff', o.stroke === undefined ? 'rgba(0,0,0,0.15)' : o.stroke, 0.1);
+    if (act) K.btns.push({ x, y, w, h, act });
+  };
+  K.backBtn = (act) => { const s = Math.max(6 * K.U, 40); K.btn(s * 0.25, s * 0.25, s, s, '←', 'rgba(120,120,150,0.45)', act, { size: s * 0.5 }); };
+  K.robot = (x, y, w, rot = 0) => { const im = K.img('robot'); if (!im) return; const h = w * im.height / im.width; ctx.save(); ctx.translate(x, y); ctx.rotate(rot); ctx.drawImage(im, -w / 2, -h / 2, w, h); ctx.restore(); };
+  K.confetti = (parts, n = 60) => { for (let i = 0; i < n; i++) parts.add({ x: K.rand(0, K.W), y: -5, vx: K.rand(-8, 8) * K.U, vy: K.rand(10, 35) * K.U, g: 8 * K.U, life: 4, size: K.rand(0.8, 1.5) * K.U, color: K.pick(['#ffd43b', '#ff8a65', '#4dabf7', '#51cf66', '#cc5de8']), shape: 'r', vr: 6, wob: 3, wobA: 8 * K.U }); };
+
+  // ---------- 画像（ロボット・ロゴ） ----------
+  const IMGS = {};
+  K.img = name => {
+    if (!IMGS[name]) { const im = new Image(); im.src = (window.K_IMG_SRC || {})[name] || ''; IMGS[name] = im; }
+    const im = IMGS[name]; return im.complete && im.naturalWidth ? im : null;
+  };
+  K.whenImg = (name, fn) => { K.img(name); const im = IMGS[name]; if (im.complete && im.naturalWidth) fn(im); else im.addEventListener('load', () => fn(im), { once: true }); };
+
+  // ---------- 粒（パーティクル） ----------
+  K.Parts = class {
+    constructor(max = 800) { this.a = []; this.max = max; }
+    add(o) {
+      this.a.push(Object.assign({ x: 0, y: 0, vx: 0, vy: 0, g: 0, drag: 0, life: 1, size: 4, color: '#fff', rot: 0, vr: 0, shape: 'c', fade: true, grow: 0 }, o, { age: 0, max: o.life || 1 }));
+      if (this.a.length > this.max) this.a.splice(0, this.a.length - this.max);
+    }
+    update(dt) {
+      for (let i = this.a.length - 1; i >= 0; i--) {
+        const p = this.a[i];
+        p.age += dt; p.life -= dt;
+        if (p.life <= 0) { this.a.splice(i, 1); continue; }
+        p.vy += p.g * dt; const d = Math.pow(1 - p.drag, dt * 60); p.vx *= d; p.vy *= d;
+        p.x += p.vx * dt; p.y += p.vy * dt; p.rot += p.vr * dt; p.size = Math.max(0, p.size + p.grow * dt);
+        if (p.wob) p.x += Math.sin(p.age * p.wob + (p.ph || 0)) * (p.wobA || 0) * dt;
+      }
+    }
+    draw() {
+      for (const p of this.a) {
+        ctx.globalAlpha = p.fade ? K.clamp(p.life / p.max * 1.5, 0, 1) * (p.alpha ?? 1) : (p.alpha ?? 1);
+        ctx.fillStyle = p.color;
+        if (p.shape === 'c') { ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2); ctx.fill(); }
+        else if (p.shape === 'r') { ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot); ctx.fillRect(-p.size, -p.size * 0.5, p.size * 2, p.size); ctx.restore(); }
+        else if (p.shape === 's') { K.star(p.x, p.y, p.size, 5, 0.45, p.rot); ctx.fill(); }
+        else if (typeof p.shape === 'function') { ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot); p.shape(ctx, p); ctx.restore(); }
+      }
+      ctx.globalAlpha = 1;
+    }
+  };
+
+  // ---------- 消す・こする（上の層をけずって下を見せる） ----------
+  // draw(c, w, h) で上の層をかく。erase で けずる、refill で少しずつもどる
+  K.Cover = class {
+    constructor(draw, scale = 0.5) { this.drawFn = draw; this.scale = scale; this.make(); }
+    make() {
+      this.w = Math.ceil(K.W * this.scale); this.h = Math.ceil(K.H * this.scale);
+      this.c = K.canvas(this.w, this.h); this.x = this.c.getContext('2d');
+      this.x.save(); this.x.scale(this.scale, this.scale); this.drawFn(this.x, K.W, K.H); this.x.restore();
+      this.full = K.canvas(this.w, this.h); this.full.getContext('2d').drawImage(this.c, 0, 0);
+    }
+    erase(x0, y0, x1, y1, r) {
+      const x = this.x, s = this.scale;
+      x.save(); x.globalCompositeOperation = 'destination-out'; x.lineCap = 'round'; x.lineWidth = r * 2 * s;
+      x.beginPath(); x.moveTo(x0 * s, y0 * s); x.lineTo(x1 * s, y1 * s); x.stroke(); x.restore();
+    }
+    refill(a) { // a：もどる強さ（0〜1）
+      if (a <= 0) return;
+      const x = this.x; x.save(); x.globalAlpha = a; x.globalCompositeOperation = 'destination-over'; x.drawImage(this.full, 0, 0); x.restore();
+    }
+    reset() { this.x.clearRect(0, 0, this.w, this.h); this.x.drawImage(this.full, 0, 0); }
+    // 指定した場所（なければ全体）の のこっている割合 0〜1
+    remain(rx = 0, ry = 0, rw = K.W, rh = K.H, step = 6) {
+      const s = this.scale;
+      const x0 = K.clamp(Math.floor(rx * s), 0, this.w - 1), y0 = K.clamp(Math.floor(ry * s), 0, this.h - 1);
+      const w = K.clamp(Math.ceil(rw * s), 1, this.w - x0), h = K.clamp(Math.ceil(rh * s), 1, this.h - y0);
+      const d = this.x.getImageData(x0, y0, w, h).data;
+      let n = 0, a = 0;
+      for (let y = 0; y < h; y += step) for (let x = 0; x < w; x += step) { n++; if (d[(y * w + x) * 4 + 3] > 100) a++; }
+      return n ? a / n : 0;
+    }
+    draw() { ctx.drawImage(this.c, 0, 0, K.W, K.H); }
+  };
+
+  // ---------- 音 ----------
+  const S = K.snd = {
+    ac: null, on: true, master: null, noiseBuf: null,
+    init() {
+      if (this.ac) { if (this.ac.state !== 'running') this.ac.resume(); return; }
+      try {
+        this.ac = new (window.AudioContext || window.webkitAudioContext)();
+        this.master = this.ac.createGain(); this.master.gain.value = 0.8;
+        const comp = this.ac.createDynamicsCompressor(); this.master.connect(comp).connect(this.ac.destination);
+        // ひびき（すこしだけ リバーブ）
+        try {
+          const sr = this.ac.sampleRate, n = Math.floor(sr * 1.8), ir = this.ac.createBuffer(2, n, sr);
+          for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c); for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, 3); }
+          const cv = this.ac.createConvolver(); cv.buffer = ir; const wet = this.ac.createGain(); wet.gain.value = 0.22;
+          this.master.connect(cv); cv.connect(wet); wet.connect(comp);
+        } catch (e) {}
+        const len = this.ac.sampleRate * 2, b = this.ac.createBuffer(1, len, this.ac.sampleRate), d = b.getChannelData(0);
+        for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+        this.noiseBuf = b;
+      } catch (e) {}
+    },
+    ok() { return this.on && this.ac && this.ac.state === 'running'; },
+    out(pan) {
+      if (pan && this.ac.createStereoPanner) { const p = this.ac.createStereoPanner(); p.pan.value = K.clamp(pan, -1, 1); p.connect(this.master); return p; }
+      return this.master;
+    },
+    // 音を1つ：type（sine/square/triangle/sawtooth）、f0→f1 へ変化
+    tone(type, f0, f1, dur, vol = 0.15, delay = 0, pan = 0, attack = 0.008) {
+      if (!this.ok()) return;
+      const t = this.ac.currentTime + delay, o = this.ac.createOscillator(), g = this.ac.createGain();
+      o.type = type; o.frequency.setValueAtTime(Math.max(20, f0), t);
+      if (f1 && f1 !== f0) o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + attack);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(g).connect(this.out(pan)); o.start(t); o.stop(t + dur + 0.05);
+    },
+    // ザッ、シャッなどの音
+    noise(freq = 1000, dur = 0.2, vol = 0.2, type = 'bandpass', q = 1, delay = 0, f1 = 0, pan = 0) {
+      if (!this.ok()) return;
+      const t = this.ac.currentTime + delay, s = this.ac.createBufferSource(); s.buffer = this.noiseBuf;
+      const f = this.ac.createBiquadFilter(); f.type = type; f.frequency.setValueAtTime(freq, t); f.Q.value = q;
+      if (f1) f.frequency.exponentialRampToValueAtTime(f1, t + dur);
+      const g = this.ac.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.008);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      s.connect(f).connect(g).connect(this.out(pan)); s.start(t, Math.random()); s.stop(t + dur + 0.05);
+    },
+    // ベルのような音（倍音つき）
+    bell(f, dur = 1.5, vol = 0.12, delay = 0, pan = 0) {
+      [[1, 1], [2.76, 0.4], [5.4, 0.2], [8.9, 0.08]].forEach(([m, v]) => this.tone('sine', f * m, f * m, dur / Math.sqrt(m), vol * v, delay, pan, 0.003));
+    },
+    // ドレミ：0=ド（C5）から。ペンタトニック（どの音をまぜてもきれい）も
+    midi: n => 440 * Math.pow(2, (n - 69) / 12),
+    major: [0, 2, 4, 5, 7, 9, 11],
+    penta: [0, 2, 4, 7, 9],
+    scale(i, base = 72, sc = [0, 2, 4, 7, 9]) { const o = Math.floor(i / sc.length), k = ((i % sc.length) + sc.length) % sc.length; return this.midi(base + o * 12 + sc[k]); },
+    pop(v = 0.15) { const f = K.rand(500, 800); this.tone('sine', f, f * 2, 0.08, v); },
+  };
+  K.sfx = {
+    click() { S.tone('sine', 660, 990, 0.07, 0.07); },
+    good(k = 0) { const f = 1 + Math.min(k, 20) * 0.03; S.tone('sine', 880 * f, 880 * f, 0.1, 0.12); S.tone('sine', 1175 * f, 1175 * f, 0.18, 0.1, 0.09); },
+    bad() { S.tone('square', 220, 180, 0.22, 0.06); },
+    tick() { S.tone('sine', 660, 660, 0.1, 0.08); },
+    fanfare(n = 4) { [0, 4, 7, 12, 16, 19].slice(0, n).forEach((m, i) => S.bell(S.midi(72 + m), 1, 0.08, i * 0.12)); },
+    end() { S.tone('square', 523, 523, 0.15, 0.06); S.tone('square', 392, 392, 0.3, 0.06, 0.18); },
+  };
+
+  // ---------- 入力 ----------
+  const ptrs = new Map();
+  K.pointers = ptrs;
+  function mkPtr(id, x, y, demo) {
+    return { id, x, y, px: x, py: y, sx: x, sy: y, vx: 0, vy: 0, speed: 0, down: true, st: K.t, demo: !!demo, data: {} };
+  }
+  function movePtr(p, x, y, dt) {
+    p.px = p.x; p.py = p.y; p.x = x; p.y = y;
+    dt = Math.max(dt, 1 / 240);
+    const a = Math.min(1, dt / 0.05);
+    p.vx += ((x - p.px) / dt - p.vx) * a; p.vy += ((y - p.py) / dt - p.vy) * a;
+    p.speed = Math.hypot(p.vx, p.vy) / K.U;   // U/秒
+  }
+  function touched() { lastInput = K.t; S.init(); if (demo.p) endDemo(); }
+  let cornerT = null;
+  const showUI = () => { const u = document.getElementById('ui'); u.classList.add('show'); clearTimeout(u._t); u._t = setTimeout(() => u.classList.remove('show'), 6000); };
+  cv.addEventListener('pointerdown', e => {
+    if (!app) return;
+    // 右上のすみを 1.2びょう おしつづけると スタッフ用ボタンが でる
+    if (e.clientX > K.W - Math.max(9 * K.U, 48) && e.clientY < Math.max(9 * K.U, 48)) { clearTimeout(cornerT); cornerT = setTimeout(showUI, 1200); }
+    touched();
+    try { cv.setPointerCapture(e.pointerId); } catch (_) {}
+    const p = mkPtr(e.pointerId, e.clientX, e.clientY); p.lt = e.timeStamp;
+    ptrs.set(e.pointerId, p);
+    // がめんの ボタン（K.btn で かいたもの）
+    for (let i = K.btns.length - 1; i >= 0; i--) { const b = K.btns[i]; if (p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h) { p.btn = true; K.sfx.click(); b.act(); return; } }
+    app.down && app.down(p);
+  });
+  cv.addEventListener('pointermove', e => {
+    if (!app) return;
+    let p = ptrs.get(e.pointerId);
+    if (!p) {
+      // マウスで ボタンをおさずに動かしたとき（hover）
+      if (e.pointerType !== 'mouse') return;
+      p = K.hover || (K.hover = mkPtr('hover', e.clientX, e.clientY)); p.down = false;
+      movePtr(p, e.clientX, e.clientY, (e.timeStamp - (p.lt || e.timeStamp)) / 1000); p.lt = e.timeStamp;
+      app.hover && app.hover(p);
+      return;
+    }
+    lastInput = K.t;
+    const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
+    for (const ev of (evs.length ? evs : [e])) {
+      movePtr(p, ev.clientX, ev.clientY, (ev.timeStamp - (p.lt || ev.timeStamp)) / 1000); p.lt = ev.timeStamp;
+      !app.tapOnly && app.move && app.move(p);
+    }
+  });
+  const upEv = e => { clearTimeout(cornerT); if (!app) return; const p = ptrs.get(e.pointerId); if (!p) return; p.down = false; ptrs.delete(e.pointerId); app.up && app.up(p); };
+  cv.addEventListener('pointerup', upEv);
+  cv.addEventListener('pointercancel', upEv);
+  cv.addEventListener('pointerleave', e => { if (app && e.pointerType === 'mouse' && K.hover) { app.hoverEnd && app.hoverEnd(K.hover); } });
+  cv.addEventListener('contextmenu', e => e.preventDefault());
+
+  // ---------- だれもいないときの「おためし」 ----------
+  const demo = { p: null, t: 0, path: null, wait: 2 };
+  function endDemo() { if (demo.p) { const p = demo.p; p.down = false; ptrs.delete('demo'); app.up && app.up(p); demo.p = null; } }
+  function demoStep(dt) {
+    if (app.demo === false) return;
+    const idleT = K.t - lastInput;
+    if (idleT < (app.demoAfter ?? 8)) { demo.wait = 1; return; }
+    if (!demo.p) {
+      demo.wait -= dt;
+      if (demo.wait > 0) return;
+      // 1回の「おためし」：画面のどこかを、ゆっくりなぞるか、タップする
+      const tap = app.tapOnly ? 1 : (app.demoTap ?? 0.4);
+      const isTap = Math.random() < tap;
+      const pt = app.demoPoint ? app.demoPoint() : [K.rand(0.15, 0.85) * K.W, K.rand(0.2, 0.85) * K.H];
+      const ang = K.rand(0, Math.PI * 2), len = K.rand(15, 40) * K.U;
+      demo.path = { x0: pt[0], y0: pt[1], dx: Math.cos(ang) * len, dy: Math.sin(ang) * len, curve: K.rand(-1, 1), dur: isTap ? 0.12 : K.rand(0.8, 1.6) };
+      demo.t = 0;
+      demo.p = mkPtr('demo', pt[0], pt[1], true); demo.p.lt = 0;
+      ptrs.set('demo', demo.p);
+      app.down && app.down(demo.p);
+      return;
+    }
+    demo.t += dt;
+    const P = demo.path, u = Math.min(1, demo.t / P.dur);
+    const x = P.x0 + P.dx * u + Math.sin(u * Math.PI) * P.curve * P.dy * 0.4;
+    const y = P.y0 + P.dy * u - Math.sin(u * Math.PI) * P.curve * P.dx * 0.4;
+    movePtr(demo.p, x, y, dt);
+    !app.tapOnly && app.move && app.move(demo.p);
+    if (u >= 1) { endDemo(); demo.wait = K.rand(app.demoGap ?? 1.2, (app.demoGap ?? 1.2) * 2.2); }
+  }
+
+  // ---------- 画面の大きさ ----------
+  function resize() {
+    K.DPR = Math.min(window.devicePixelRatio || 1, 2);
+    const w = innerWidth, h = innerHeight;
+    if (w === K.W && h === K.H && cv.width === Math.round(w * K.DPR)) return;
+    K.W = w; K.H = h; K.U = Math.min(w, h) / 100; K.portrait = h > w;
+    cv.width = Math.round(w * K.DPR); cv.height = Math.round(h * K.DPR);
+    app && app.resize && app.resize();
+  }
+  K.resize = resize;
+  addEventListener('resize', resize);
+  if (window.visualViewport) visualViewport.addEventListener('resize', resize);
+  addEventListener('orientationchange', () => { setTimeout(resize, 250); setTimeout(resize, 700); });
+  addEventListener('pageshow', resize);
+
+  // ---------- ループ ----------
+  function frame(now) {
+    const dt = Math.max(0, Math.min(0.05, (now - last) / 1000 || 0)); last = now;
+    K.t += dt; K.dt = dt; K.idle = K.t - lastInput;
+    demoStep(dt);
+    ctx.setTransform(K.DPR, 0, 0, K.DPR, 0, 0);
+    ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+    app.update && app.update(dt, K.t);
+    ctx.setTransform(K.DPR, 0, 0, K.DPR, 0, 0);
+    K.btns = [];
+    app.draw && app.draw(ctx);
+    ctx.setTransform(K.DPR, 0, 0, K.DPR, 0, 0);
+    ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+    // ヒントの文字（さいしょの数秒と、だれもいないとき）
+    const show = Math.max(1 - K.t / 3.5, K.idle > 10 ? Math.min(1, (K.idle - 10) / 1.5) : 0);
+    if (show > 0 && app.hint) {
+      const fs = Math.max(3.4 * K.U, 14), y = K.H - Math.max(6 * K.U, 30);
+      ctx.font = `900 ${fs}px ${K.FONT}`;
+      const tw = Math.min(K.W * 0.92, ctx.measureText(app.hint).width + fs * 2.2);
+      ctx.globalAlpha = show * 0.9;
+      ctx.fillStyle = 'rgba(20,24,40,0.45)'; K.rrect(K.W / 2 - tw / 2, y - fs * 0.95, tw, fs * 1.9, fs * 0.95); ctx.fill();
+      ctx.globalAlpha = show * (0.85 + 0.15 * Math.sin(K.t * 3));
+      K.text(app.hint, K.W / 2, y, fs, '#fff', null);
+      ctx.globalAlpha = 1;
+    }
+    // はじめに ふわっと あらわれる
+    if (K.t < 0.6) { ctx.globalAlpha = 1 - K.t / 0.6; ctx.fillStyle = getComputedStyle(document.body).backgroundColor; ctx.fillRect(0, 0, K.W, K.H); ctx.globalAlpha = 1; }
+    requestAnimationFrame(frame);
+  }
+
+  K.start = a => {
+    app = a;
+    document.title = a.title || document.title;
+    resize();
+    app.init && app.init();
+    app.resize && app.resize();
+    last = performance.now();
+    requestAnimationFrame(frame);
+  };
+
+  // ---------- 右上のボタン ----------
+  const $ = id => document.getElementById(id);
+  K.goHome = () => {
+    if (window.parent !== window) window.parent.postMessage({ type: 'minigame-exit', game: (app && app.id) || '' }, '*');
+    else history.back();
+  };
+  K.toggleFull = () => {
+    const de = document.documentElement;
+    if (!(document.fullscreenElement || document.webkitFullscreenElement)) {
+      if (de.requestFullscreen) de.requestFullscreen().catch(() => {});
+      else if (de.webkitRequestFullscreen) de.webkitRequestFullscreen();
+    } else if (document.exitFullscreen) document.exitFullscreen();
+    else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+  };
+  K.toggleSound = () => { S.on = !S.on; S.init(); $('bSound').textContent = S.on ? '🔊' : '🔇'; };
+  $('bHome').onclick = K.goHome; $('bFull').onclick = K.toggleFull; $('bSound').onclick = K.toggleSound;
+  $('ui').addEventListener('pointerdown', e => e.stopPropagation());
+  addEventListener('keydown', e => {
+    S.init(); lastInput = K.t;
+    if (e.key === 'f' || e.key === 'F') K.toggleFull();
+    else if (e.key === 'm' || e.key === 'M') K.toggleSound();
+    else if (e.key === 'Escape') K.goHome();
+    else app && app.key && app.key(e);
+  });
+
+  // ---------- iPhone / iPad（Safari）むけ ----------
+  const d = document;
+  ['gesturestart', 'gesturechange', 'gestureend'].forEach(t => d.addEventListener(t, e => e.preventDefault(), { passive: false }));
+  d.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
+  let lastEnd = 0;
+  d.addEventListener('touchend', e => {
+    const now = Date.now();
+    if (now - lastEnd < 350 && !e.target.closest('button') && !e.target.closest('canvas')) e.preventDefault();
+    lastEnd = now;
+  }, { passive: false });
+  if (!(d.fullscreenEnabled || d.webkitFullscreenEnabled)) $('bFull').style.display = 'none';
+  const unlock = () => {
+    try {
+      S.init();
+      if (!S.ac) return;
+      if (S.ac.state !== 'running') S.ac.resume();
+      if (!S._unlocked) { const b = S.ac.createBuffer(1, 1, 22050), s = S.ac.createBufferSource(); s.buffer = b; s.connect(S.ac.destination); s.start(0); S._unlocked = true; }
+    } catch (e) {}
+  };
+  ['touchstart', 'touchend', 'pointerdown', 'click', 'keydown'].forEach(t => d.addEventListener(t, unlock, { capture: true, passive: true }));
+  d.addEventListener('visibilitychange', () => { if (!d.hidden) S._unlocked = false; });
+
+  return K;
+})();
+
+</script>
+<script>
+/* ===== おとの わ ===== */
+// @id otonowa
+// @title おとの わ
+// @cat イマーシブ アート
+// @desc タッチすると おとの わが ひろがる。わと わが かさなると きらっと ひかる
+// @bg #070712
+const { rand, pick } = K;
+const S = K.snd;
+const fx = new K.Parts(500);
+let rings = [], fresh = true;
+function addRing(x, y, big) {
+  const { W, H, U } = K;
+  const idx = Math.floor(x / W * 10), oct = y < H / 2 ? 72 : 60, f = S.scale(idx, oct);
+  const pan = x / W * 2 - 1;
+  S.bell(f, big ? 2.2 : 1.2, big ? 0.09 : 0.045, 0, pan);
+  rings.push({ x, y, r: 0, v: (big ? 34 : 26) * U, hue: (idx * 36 + (oct === 72 ? 20 : 0)) % 360, a: 1, w: big ? 1 : 0.6, max: Math.max(W, H) * (big ? 0.7 : 0.45) });
+  if (rings.length > 36) rings.shift();
+}
+K.start({
+  id: 'otonowa', title: 'おとの わ', hint: 'タッチして おとを ならそう',
+  demoTap: 0.7, demoGap: 0.6,
+  resize() { fresh = true; },
+  down(p) { addRing(p.x, p.y, true); p.data.l = [p.x, p.y]; },
+  move(p) { const [lx, ly] = p.data.l; if (Math.hypot(p.x - lx, p.y - ly) > 9 * K.U) { addRing(p.x, p.y, false); p.data.l = [p.x, p.y]; } },
+  update(dt) {
+    for (const r of rings) { r.r += r.v * dt; r.v *= Math.pow(0.7, dt); r.a = 1 - r.r / r.max; }
+    rings = rings.filter(r => r.a > 0);
+    fx.update(dt);
+  },
+  draw(ctx) {
+    const { W, H, U, t } = K;
+    ctx.fillStyle = fresh ? '#070712' : 'rgba(7,7,18,0.28)'; ctx.fillRect(0, 0, W, H); fresh = false;
+    ctx.globalCompositeOperation = 'lighter';
+    for (const r of rings) {
+      const a = r.a * r.a;
+      ctx.strokeStyle = `hsla(${r.hue},90%,60%,${a * 0.9})`; ctx.lineWidth = (0.4 + r.w * 0.9) * U * (0.5 + r.a);
+      ctx.beginPath(); ctx.arc(r.x, r.y, r.r, 0, 7); ctx.stroke();
+      ctx.strokeStyle = `hsla(${r.hue},90%,70%,${a * 0.3})`; ctx.lineWidth = 0.3 * U;
+      ctx.beginPath(); ctx.arc(r.x, r.y, r.r * 0.82, 0, 7); ctx.stroke();
+      if (r.r < 6 * U) K.circle(r.x, r.y, (6 * U - r.r) * 0.4, `hsla(${r.hue},100%,80%,0.6)`);
+    }
+    // わの かさなり
+    for (let i = 0; i < rings.length; i++) for (let j = i + 1; j < rings.length; j++) {
+      const A = rings[i], B = rings[j], dx = B.x - A.x, dy = B.y - A.y, d = Math.hypot(dx, dy);
+      if (d < 1 || d > A.r + B.r || d < Math.abs(A.r - B.r)) continue;
+      const a = (A.r * A.r - B.r * B.r + d * d) / (2 * d), h = Math.sqrt(Math.max(0, A.r * A.r - a * a));
+      const mx = A.x + dx * a / d, my = A.y + dy * a / d, al = Math.min(A.a, B.a);
+      for (const s of [-1, 1]) {
+        const x = mx - s * dy * h / d, y = my + s * dx * h / d, hue = (A.hue + B.hue) / 2;
+        K.circle(x, y, U * (0.6 + al * 1.2), `hsla(${hue},100%,85%,${al})`);
+        K.circle(x, y, U * (2 + al * 2), `hsla(${hue},100%,60%,${al * 0.18})`);
+        if (Math.random() < 0.04 * al) fx.add({ x, y, vx: rand(-6, 6) * U, vy: rand(-6, 6) * U, life: 0.7, size: rand(0.4, 0.9) * U, color: `hsl(${hue},100%,80%)`, shape: 's', vr: 4 });
+      }
+    }
+    fx.draw();
+    ctx.globalCompositeOperation = 'source-over';
+  },
+});
+
+</script>
+</body>
+</html>
