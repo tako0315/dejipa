@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ポーズまねっこ</title>
+<style>
+  :root{--bg:#1b2540;--panel:#243257;--ink:#f3f1ea;--sub:#a9b4d0;--hit:#6ee7b7;--mid:#fbbf24;--miss:#ff6b8b}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:"Hiragino Sans","Yu Gothic","Meiryo",sans-serif;min-height:100vh;display:flex;flex-direction:column;justify-content:center}
+  /* 画面の中央にまとめて表示 */
+  header,main{width:100%;max-width:1188px;margin-left:auto;margin-right:auto}
+  header{padding:18px 24px 6px;display:flex;align-items:baseline;gap:16px;flex-wrap:wrap}
+  h1{margin:0;font-size:28px;letter-spacing:.04em}
+  header p{margin:0;color:var(--sub);font-size:14px}
+  main{display:flex;gap:20px;padding:12px 24px 28px;flex-wrap:wrap;align-items:flex-start;justify-content:center}
+  .stage{position:relative;flex:1 1 560px;max-width:820px;background:#000;border-radius:14px;overflow:hidden}
+  canvas{display:block;width:100%;height:auto}
+  .side{flex:0 1 300px;min-width:260px}
+  .card{background:var(--panel);border-radius:14px;padding:14px 16px}
+  ol{margin:6px 0 0;padding-left:20px;color:var(--sub);font-size:14px;line-height:1.7}
+  /* カメラ画面の上に重ねる表示 */
+  .hud{position:absolute;top:10px;background:rgba(20,28,51,.72);border-radius:12px;padding:8px 12px;pointer-events:none}
+  .hud-left{left:10px;max-width:28%}
+  .hud-right{right:10px;width:clamp(110px,24%,170px)}
+  .hud-target{left:50%;transform:translateX(-50%);width:clamp(110px,24%,190px);padding:8px;text-align:center}
+  .hud-target canvas{border-radius:8px;aspect-ratio:4/5}
+  #poseName{font-size:clamp(12px,2.2vw,17px);font-weight:700;margin-top:4px;line-height:1.3}
+  #phase{color:var(--ink);font-size:clamp(11px,2vw,14px);line-height:1.4}
+  #big{font-size:clamp(30px,8vw,56px);font-weight:800;line-height:1.1;margin-top:2px}
+  .lbl{font-size:11px;color:var(--sub)}
+  #live{font-size:clamp(28px,6vw,44px);font-weight:700;font-variant-numeric:tabular-nums;line-height:1.1}
+  #total{font-size:clamp(11px,2vw,14px);color:var(--sub);margin-top:4px}
+  .bar{height:10px;background:#141c33;border-radius:5px;overflow:hidden;margin-top:6px}
+  #fill{height:100%;width:0;background:var(--miss);transition:width .1s,background .2s}
+  #judge{position:absolute;left:0;right:0;bottom:16px;text-align:center;font-weight:800;letter-spacing:.06em;font-size:clamp(34px,9vw,64px);text-shadow:0 3px 14px rgba(0,0,0,.85);pointer-events:none}
+  #judge[data-level="good"]{color:var(--hit)}
+  #judge[data-level="excellent"]{color:#ffd166;font-size:clamp(40px,11vw,76px)}
+  button{font:inherit;font-weight:700;background:var(--miss);color:#2a0f18;border:0;border-radius:10px;padding:12px 22px;cursor:pointer}
+  button:focus-visible{outline:3px solid var(--ink);outline-offset:2px}
+  button:disabled{opacity:.5;cursor:default}
+  label{font-size:14px;color:var(--sub);display:flex;gap:8px;align-items:center}
+  select{font:inherit;background:var(--panel);color:var(--ink);border:1px solid #3a4a78;border-radius:8px;padding:4px 8px}
+  .overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;text-align:center;padding:20px;background:rgba(20,28,51,.86)}
+  .overlay.hidden{display:none}
+  .overlay h2{margin:0;font-size:34px}
+  .overlay p{margin:0;color:var(--sub);max-width:34em;line-height:1.7}
+  .ctrl{position:absolute;right:10px;bottom:10px;display:flex;gap:6px}
+  .ctrl button{padding:6px 12px;font-size:13px;background:rgba(20,28,51,.78);color:var(--ink);border:1px solid #3a4a78}
+  .stage:fullscreen,.stage:-webkit-full-screen,.stage.pseudo-fs{max-width:none;width:100%;height:100%;border-radius:0;background:#000;display:flex;align-items:center;justify-content:center}
+  .stage.pseudo-fs{position:fixed;inset:0;z-index:1000}
+  .stage:fullscreen #cam,.stage:-webkit-full-screen #cam,.stage.pseudo-fs #cam{width:100%;height:100%;object-fit:contain}
+  /* 二人対戦 */
+  .vs{display:none;width:clamp(120px,27%,200px)}
+  .stage.vsmode .vs{display:block}
+  .vsL{left:10px}.vsR{right:10px}
+  .vsName{font-weight:800;font-size:clamp(13px,2.4vw,18px)}
+  .vsL .vsName{color:#5ec8ff}.vsR .vsName{color:#ff7bd0}
+  .hearts{font-size:clamp(14px,2.6vw,22px);letter-spacing:2px;line-height:1.2}
+  .hearts .on{color:#ff4d6d}.hearts .off{color:#3a4a78}
+  .vsLive{font-size:clamp(24px,5vw,38px);font-weight:700;font-variant-numeric:tabular-nums;line-height:1.1}
+  #fillL,#fillR{height:100%;width:0;background:var(--miss);transition:width .1s,background .2s}
+  .stage.vsmode .hud-right{display:none}
+  .stage.vsmode .hud-left{left:50%;transform:translateX(-50%);top:auto;bottom:10px;max-width:none;white-space:nowrap;text-align:center}
+  .stage.vsmode #big{display:inline-block;font-size:clamp(22px,5vw,38px);margin-left:10px;vertical-align:middle}
+  .stage.vsmode #phase{display:inline-block;vertical-align:middle}
+  .stage.vsmode #judge{bottom:64px}
+  #judge[data-level="p1"]{color:#5ec8ff}
+  #judge[data-level="p2"]{color:#ff7bd0}
+  #judge[data-level="draw"]{color:var(--sub)}
+  @media (max-width:600px){header{padding:14px 14px 4px}main{padding:8px 14px 24px}h1{font-size:24px}.overlay h2{font-size:26px}}
+</style>
+</head>
+<body>
+<header>
+  <h1>ポーズまねっこ</h1>
+  <p>お手本のポーズを体で再現してスコアを競おう(全5ラウンド)</p>
+</header>
+<main>
+  <div class="stage">
+    <video id="video" playsinline muted style="display:none"></video>
+    <canvas id="cam" width="640" height="480"></canvas>
+
+    <div class="hud hud-left">
+      <div id="phase">スタートを押してね</div>
+      <div id="big"></div>
+    </div>
+    <div class="hud hud-target">
+      <canvas id="tgt" width="320" height="400"></canvas>
+      <div id="poseName">—</div>
+    </div>
+    <div class="hud hud-right">
+      <div class="lbl">再現度</div>
+      <div id="live">0</div>
+      <div class="bar"><div id="fill"></div></div>
+      <div id="total">合計 0</div>
+    </div>
+    <div id="judge" data-level=""></div>
+    <div class="hud vs vsL"><div class="vsName">P1</div><div class="hearts" id="hpL"></div><div class="vsLive" id="liveL">0</div><div class="bar"><div id="fillL"></div></div></div>
+    <div class="hud vs vsR"><div class="vsName">P2</div><div class="hearts" id="hpR"></div><div class="vsLive" id="liveR">0</div><div class="bar"><div id="fillR"></div></div></div>
+
+    <div id="overlay" class="overlay">
+      <h2 id="ovTitle">ポーズまねっこ</h2>
+      <p id="ovText">カメラから2〜3m離れて、頭から足先(または上半身)が映るように立ってください。映像はPCの外には送信されません。</p>
+      <label>人数 <select id="players"><option value="1">1人</option><option value="2">二人対戦(HP5)</option></select></label>
+      <label>モード <select id="mode"><option value="normal">ふつう</option><option value="hard">むずかしい(バランス)</option><option value="mix">ミックス</option></select></label>
+      <label><input type="checkbox" id="upper"> 上半身だけで判定する(全身が映らないとき)</label>
+      <button id="startBtn">カメラを使ってスタート</button>
+    </div>
+    <div class="ctrl">
+      <button id="muteBtn" type="button">音 ON</button>
+      <button id="fsBtn" type="button">全画面</button>
+    </div>
+  </div>
+  <div class="side">
+    <div class="card">
+      <b>遊び方</b>
+      <ol>
+        <li>お手本(画面の上)が出たら3秒で構える</li>
+        <li>4秒キープ。いちばん高い再現度がスコア</li>
+        <li>★のポーズは6秒。1.5秒続けて保てた平均がスコア</li>
+        <li>腕や脚が緑なら合っている、赤はズレている</li>
+        <li>80点以上でGOOD、100点でEXCELLENT</li>
+        <li>二人対戦: 画面左がP1、右がP2。高得点の方が相手に1ダメージ(HP5)。同点はノーダメージで、どちらかのHPが0になるまで続く</li>
+      </ol>
+    </div>
+  </div>
+</main>
+
+<script type="module">
+import { PoseLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
+
+// 部位の角度(度)。0=画面右, 90=下, -90=上, 180=左。画面は鏡写し。
+// 順番: [左上腕, 左前腕, 右上腕, 右前腕, 左もも, 左すね, 右もも, 右すね]
+const POSES = [
+  {name:"ばんざい",   a:[-110,-110,-70,-70,90,90,90,90]},
+  {name:"Tポーズ",    a:[180,180,0,0,90,90,90,90]},
+  {name:"Yポーズ",    a:[-135,-135,-45,-45,90,90,90,90]},
+  {name:"腰に手",     a:[121,50,59,130,90,90,90,90]},
+  {name:"力こぶ",     a:[180,-90,0,-90,90,90,90,90]},
+  {name:"大の字",     a:[-135,-135,-45,-45,110,110,70,70]},
+  {name:"片手上げ",   a:[-90,-90,90,90,90,90,90,90]},
+  {name:"がに股T",    a:[180,180,0,0,115,90,65,90]},
+  {name:"左上・右横", a:[-90,-90,0,0,90,90,90,90]},
+  {name:"ななめ",     a:[-135,-135,45,45,90,90,90,90]},
+  // ---- むずかしい(バランス系)----
+  {name:"木のポーズ(右足立ち)", hard:true, a:[-70,-80,-110,-100,150,50,90,90]},
+  {name:"木のポーズ(左足立ち)", hard:true, a:[-70,-80,-110,-100,90,90,30,130]},
+  {name:"片足横上げT",   hard:true, a:[180,180,0,0,160,160,90,90]},
+  {name:"三日月",       hard:true, t:112, a:[-60,-30,100,100,105,100,75,80]},
+  {name:"サイドランジ", hard:true, a:[-100,-100,-80,-80,150,90,55,55]},
+  {name:"星のバランス", hard:true, a:[-135,-135,-45,-45,160,160,90,90]},
+  {name:"シーソー",     hard:true, t:70, a:[95,95,-120,-150,90,90,25,25]}
+];
+// 各部位 = [始点, 終点] の MediaPipe ランドマーク番号 (11=左肩,13=左肘,15=左手首,23=左腰,25=左膝,27=左足首)
+const SEGS = [[11,13],[13,15],[12,14],[14,16],[23,25],[25,27],[24,26],[26,28]];
+const ROUNDS = 5, PREP = 3000, HOLD = 4000, HOLD_HARD = 6000, SHOW = 2400;
+
+const $ = id => document.getElementById(id);
+const video = $("video"), cam = $("cam"), cx = cam.getContext("2d");
+const tgt = $("tgt"), tx = tgt.getContext("2d");
+let landmarker, lms = null, lmsAll = [], lastT = -1;
+let state = {phase:"idle", round:0, order:[], t0:0, best:0, smooth:0, scores:[]};
+
+function shuffle(a){ for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];} return a; }
+const angDiff = (a,b) => { let d = Math.abs(a-b) % 360; return d>180 ? 360-d : d; };
+const colorFor = s => s>0.8 ? "#6ee7b7" : s>0.45 ? "#fbbf24" : "#ff6b8b";
+
+// ----- 判定 -----
+function judge(pose, lm){
+  const useLegs = !$("upper").checked || pose.hard;
+  const n = useLegs ? 8 : 4;
+  const per = [];
+  let sum = 0, cnt = n;
+  for(let i=0;i<8;i++){
+    if(i>=n){ per.push(null); continue; }
+    const p = lm[SEGS[i][0]], q = lm[SEGS[i][1]];
+    if(!p || !q || p.visibility<0.4 || q.visibility<0.4){ per.push(0); continue; }
+    const deg = Math.atan2((q.y-p.y)*cam.height, (1-q.x - (1-p.x))*cam.width) * 180/Math.PI;
+    const d = angDiff(deg, pose.a[i]);
+    const s = Math.max(0, 1 - Math.max(0, d-10)/50); // 10度までは満点
+    per.push(s); sum += s;
+  }
+  if(pose.t !== undefined){
+    cnt++;
+    const a=lm[11], b=lm[12], c=lm[23], d=lm[24];
+    if([a,b,c,d].every(q=>q && q.visibility>=0.4)){
+      const dx=(c.x+d.x)/2-(a.x+b.x)/2, dy=(c.y+d.y)/2-(a.y+b.y)/2;
+      const deg=Math.atan2(dy*cam.height, -dx*cam.width)*180/Math.PI;
+      sum += Math.max(0, 1 - Math.max(0, angDiff(deg, pose.t)-10)/50);
+    }
+  }
+  return {per, score: sum/cnt*100};
+}
+
+// ----- 描画 -----
+function drawLine(ctx,x1,y1,x2,y2,col,w){ ctx.strokeStyle=col; ctx.lineWidth=w; ctx.lineCap="round"; ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke(); }
+
+function drawTarget(pose){
+  const W=tgt.width, H=tgt.height; tx.clearRect(0,0,W,H);
+  if(!pose) return;
+  const cxm=W/2, sy=118, half=34, torso=100, U=62, F=56, T=82, S=78;
+  const col="#f3f1ea";
+  const ext=(p,deg,len)=>({x:p.x+Math.cos(deg*Math.PI/180)*len, y:p.y+Math.sin(deg*Math.PI/180)*len});
+  const ta = pose.t===undefined ? 90 : pose.t, c0={x:cxm,y:sy}, pr=ta-90;
+  const L=ext(c0,pr+180,half), R=ext(c0,pr,half), hc=ext(c0,ta,torso);
+  const HL=ext(hc,pr+180,half*0.55), HR=ext(hc,pr,half*0.55), head=ext(c0,ta+180,34);
+  const a=pose.a;
+  const le=ext(L,a[0],U), lw=ext(le,a[1],F), re=ext(R,a[2],U), rw=ext(re,a[3],F);
+  const lk=ext(HL,a[4],T), la=ext(lk,a[5],S), rk=ext(HR,a[6],T), ra=ext(rk,a[7],S);
+  const links=[[L,R],[L,HL],[R,HR],[HL,HR],[L,le],[le,lw],[R,re],[re,rw],[HL,lk],[lk,la],[HR,rk],[rk,ra]];
+  links.forEach(([p,q])=>drawLine(tx,p.x,p.y,q.x,q.y,col,9));
+  tx.fillStyle=col; tx.beginPath(); tx.arc(head.x,head.y,24,0,7); tx.fill();
+  [lw,rw,la,ra].forEach(p=>{tx.beginPath(); tx.arc(p.x,p.y,8,0,7); tx.fill();});
+}
+
+let streak=0, aura=0; const parts=[];
+function edgeGlow(aura){
+  const W=cam.width,H=cam.height,pulse=0.75+0.25*Math.sin(performance.now()/160);
+  const g=cx.createRadialGradient(W/2,H/2,Math.min(W,H)*0.35,W/2,H/2,Math.max(W,H)*0.75);
+  g.addColorStop(0,"rgba(255,209,102,0)"); g.addColorStop(1,`rgba(255,209,102,${0.55*aura*pulse})`);
+  cx.fillStyle=g; cx.fillRect(0,0,W,H);
+}
+function drawAura(P,aura){
+  const pulse=0.75+0.25*Math.sin(performance.now()/160);
+  const segs=[[11,12],[11,23],[12,24],[23,24],...SEGS];
+  cx.save(); cx.lineCap="round";
+  cx.shadowColor=`rgba(255,209,102,${0.9*aura})`; cx.shadowBlur=40*aura*pulse;
+  cx.strokeStyle=`rgba(255,214,120,${0.3*aura*pulse})`; cx.lineWidth=14+44*aura;
+  segs.forEach(([a,b])=>{ const p=P(a),q=P(b); cx.beginPath(); cx.moveTo(p.x,p.y); cx.lineTo(q.x,q.y); cx.stroke(); });
+  cx.restore();
+  // 立ちのぼる光の粒
+  for(let k=0;k<Math.ceil(5*aura);k++){
+    const [a,b]=segs[Math.floor(Math.random()*segs.length)], p=P(a), q=P(b), r=Math.random();
+    parts.push({x:p.x+(q.x-p.x)*r, y:p.y+(q.y-p.y)*r, vx:(Math.random()-.5)*1.2, vy:-(1+Math.random()*2.5), life:1});
+  }
+  cx.save(); cx.globalCompositeOperation="lighter";
+  for(let i=parts.length-1;i>=0;i--){
+    const q=parts[i]; q.x+=q.vx; q.y+=q.vy; q.life-=0.022;
+    if(q.life<=0){ parts.splice(i,1); continue; }
+    cx.fillStyle=`rgba(255,225,140,${q.life*0.85})`; cx.beginPath(); cx.arc(q.x,q.y,2+4*q.life,0,7); cx.fill();
+  }
+  cx.restore();
+}
+function drawCam(players){
+  const W=cam.width, H=cam.height;
+  cx.save(); cx.translate(W,0); cx.scale(-1,1); cx.drawImage(video,0,0,W,H); cx.restore();
+  cx.fillStyle="rgba(20,28,51,.25)"; cx.fillRect(0,0,W,H);
+  const amax=Math.max(0,...players.map(p=>p.aura||0));
+  if(amax>0) edgeGlow(amax); else parts.length=0;
+  players.forEach(pl=>{
+    const lm=pl.lm; if(!lm) return; const per=pl.per;
+    const P = i => ({x:(1-lm[i].x)*W, y:lm[i].y*H});
+    if(pl.aura>0) drawAura(P,pl.aura);
+    const grey=pl.col||"rgba(243,241,234,.8)";
+    [[11,12],[11,23],[12,24],[23,24]].forEach(([a,b])=>{ const p=P(a),q=P(b); drawLine(cx,p.x,p.y,q.x,q.y,grey,6); });
+    SEGS.forEach(([a,b],i)=>{
+      if(per && per[i]===null) return;
+      const p=P(a), q=P(b);
+      drawLine(cx,p.x,p.y,q.x,q.y, per && per[i]!=null ? colorFor(per[i]) : grey, 9);
+    });
+    const nose=P(0); cx.fillStyle=grey; cx.beginPath(); cx.arc(nose.x,nose.y,16,0,7); cx.fill();
+    if(pl.tag){
+      cx.save(); cx.font="bold 24px sans-serif"; cx.textAlign="center"; cx.lineWidth=4; cx.strokeStyle="rgba(0,0,0,.7)"; cx.fillStyle=pl.col;
+      cx.strokeText(pl.tag,nose.x,nose.y-28); cx.fillText(pl.tag,nose.x,nose.y-28); cx.restore();
+    }
+  });
+}
+
+// ----- ゲーム進行 -----
+function setUI(phase, big){ $("phase").textContent = phase; $("big").textContent = big||""; }
+function startGame(){
+  versus = $("players").value==="2";
+  try{ landmarker.setOptions({numPoses: versus?2:1}); }catch(e){}
+  stage.classList.toggle("vsmode", versus); stage.style.transform="";
+  $("judge").textContent=""; $("judge").dataset.level="";
+  if(versus){ vsStart(); return; }
+  state = {phase:"prep", round:0, order:shuffle(POSES.map((_,i)=>i).filter(i=>{const m=$("mode").value; return m==="mix" || (m==="hard")===!!POSES[i].hard;})).slice(0,ROUNDS), t0:performance.now(), best:0, smooth:0, scores:[]};
+  $("overlay").classList.add("hidden"); $("total").textContent="合計 0"; startBgm();
+}
+function tick(now, per, score){
+  const s = state; if(s.phase==="idle"||s.phase==="done") return;
+  const pose = POSES[s.order[s.round]], el = now - s.t0;
+  $("poseName").textContent = `${s.round+1}/${ROUNDS}  ${pose.hard?"★ ":""}${pose.name}`;
+  if(s.phase==="prep"){
+    setUI("お手本をまねて構えて!", Math.ceil((PREP-el)/1000));
+    if(el>=PREP){ s.phase="hold"; s.t0=now; s.best=0; s.buf=[]; }
+  } else if(s.phase==="hold"){
+    const hold = pose.hard ? HOLD_HARD : HOLD;
+    setUI(pose.hard ? "キープ!ぐらつかないで" : "キープ!", Math.ceil((hold-el)/1000));
+    s.buf.push({t:now,v:s.smooth}); while(s.buf.length && now-s.buf[0].t>1500) s.buf.shift();
+    if(pose.hard){ if(el>=1500) s.best = Math.max(s.best, s.buf.reduce((a,b)=>a+b.v,0)/s.buf.length); }
+    else s.best = Math.max(s.best, s.smooth);
+    if(el>=hold){ const r=Math.round(s.best); s.scores.push(r); s.combo = r>=100 ? (s.combo||0)+1 : 0; s.phase="show"; s.t0=now;
+      $("total").textContent = "合計 "+s.scores.reduce((a,b)=>a+b,0); }
+  } else if(s.phase==="show"){
+    const r = s.scores[s.round];
+    setUI(r>=90?"ぴったり!":r>=70?"いい感じ!":r>=40?"おしい!":"もう一回!", r+"点");
+    if(el>=SHOW){
+      s.round++;
+      if(s.round>=ROUNDS) finish(); else { s.phase="prep"; s.t0=now; s.smooth=0; }
+    }
+  }
+}
+function finish(){
+  state.phase="done"; stopBgm(); setUI("おつかれさま!",""); $("poseName").textContent="結果";
+  const total = state.scores.reduce((a,b)=>a+b,0), avg = total/ROUNDS;
+  const rank = avg>=90?"S":avg>=75?"A":avg>=55?"B":avg>=35?"C":"D";
+  $("ovTitle").textContent = `ランク ${rank}  ${total} / ${ROUNDS*100}`;
+  $("ovText").textContent = "各ラウンド: " + state.scores.map((v,i)=>`${POSES[state.order[i]].name} ${v}`).join(" / ");
+  $("startBtn").textContent = "もう一度あそぶ";
+  $("overlay").classList.remove("hidden");
+}
+
+function loop(){
+  const now = performance.now();
+  if(video.readyState>=2 && video.currentTime!==lastT){
+    lastT = video.currentTime;
+    const r = landmarker.detectForVideo(video, now);
+    lmsAll = r.landmarks || []; lms = lmsAll[0] || null;
+  }
+  if(versus && vs){ vsFrame(now); requestAnimationFrame(loop); return; }
+  const active = state.phase==="prep"||state.phase==="hold";
+  const pose = active||state.phase==="show" ? POSES[state.order[state.round]] : null;
+  let per=null, score=0;
+  if(lms && pose){ const j=judge(pose,lms); per=j.per; score=j.score; }
+  state.smooth = lms && pose ? state.smooth*0.7 + score*0.3 : state.smooth*0.9;
+  const dt = now - (loop.last||now); loop.last = now;
+  const nowShown = Math.round(state.smooth);
+  if(active && lms && nowShown>=100) streak += dt; else streak = 0;
+  let auraTarget = Math.min(1, streak/1500); // 100点が1.5秒続くと全開
+  if((state.combo||0)>0 && active && lms && nowShown>=100) auraTarget = Math.max(auraTarget, 0.6); // 前のラウンドも100点なら最初から
+  aura += (auraTarget-aura)*0.15; if(aura<0.01) aura=0;
+  drawCam([{lm:lms,per,aura}]); drawTarget(pose);
+  const shown = Math.round(state.smooth);
+  $("live").textContent = shown;
+  $("fill").style.width = shown+"%";
+  $("fill").style.background = colorFor(shown/100);
+  let level = "";
+  if(active){ if(lms) level = shown>=100?"excellent":shown>=80?"good":""; }
+  else if(state.phase==="show"){ const r=state.scores[state.round]; level = r>=100?"excellent":r>=80?"good":""; }
+  $("judge").dataset.level = level;
+  $("judge").textContent = level==="excellent" ? "EXCELLENT!" : level==="good" ? "GOOD!" : "";
+  if(RANK[level]>RANK[lastLevel] && now-lastSnd[level]>1500){ playSfx(level); lastSnd[level]=now; }
+  lastLevel = level;
+  if(active && !lms) $("phase").textContent = "体が映っていません。少し離れてね";
+  tick(now, per, score);
+  requestAnimationFrame(loop);
+}
+
+// ----- 二人対戦 -----
+const VCOL=["#5ec8ff","#ff7bd0"], MAXHP=5, SHOW_VS=2800, HIT_AT=500;
+let versus=false, vs=null;
+function vsStart(){
+  const pool=POSES.map((_,i)=>i).filter(i=>{const m=$("mode").value; return m==="mix" || (m==="hard")===!!POSES[i].hard;});
+  vs={phase:"prep", t0:performance.now(), pool, bag:[], cur:-1, hp:[MAXHP,MAXHP], round:1,
+      smooth:[0,0], buf:[[],[]], best:[0,0], scores:[0,0], streak:[0,0], aura:[0,0], lastLevel:["",""],
+      fx:null, bursts:[], centers:[{x:cam.width*.25,y:cam.height*.5},{x:cam.width*.75,y:cam.height*.5}]};
+  vsNextPose(); renderHearts();
+  $("liveL").textContent=0; $("liveR").textContent=0;
+  $("overlay").classList.add("hidden"); startBgm();
+}
+function vsNextPose(){
+  if(!vs.bag.length){ vs.bag=shuffle(vs.pool.slice()); if(vs.bag.length>1 && vs.bag[vs.bag.length-1]===vs.cur) vs.bag.unshift(vs.bag.pop()); }
+  vs.cur=vs.bag.pop();
+}
+function renderHearts(){
+  ["L","R"].forEach((id,i)=>{ $("hp"+id).innerHTML=Array.from({length:MAXHP},(_,k)=>`<span class="${k<vs.hp[i]?"on":"off"}">♥</span>`).join(""); });
+}
+function assignPlayers(all){ // 画面左=P1, 右=P2
+  const xOf=lm=>1-(lm[11].x+lm[12].x+lm[23].x+lm[24].x)/4;
+  const arr=all.slice(0,2).map(lm=>({lm,x:xOf(lm)})).sort((a,b)=>a.x-b.x);
+  if(arr.length===2) return [arr[0].lm, arr[1].lm];
+  if(arr.length===1) return arr[0].x<0.5 ? [arr[0].lm,null] : [null,arr[0].lm];
+  return [null,null];
+}
+function drawFx(now){
+  const v=vs, W=cam.width, H=cam.height, f=v.fx;
+  if(f){
+    const t=now-f.t0, A=v.centers[f.winner], B=v.centers[f.loser], col=VCOL[f.winner];
+    if(t<HIT_AT){ // 相手に向かって飛ぶエネルギー弾
+      const p=t/HIT_AT, e=p*p*(3-2*p);
+      cx.save(); cx.globalCompositeOperation="lighter";
+      for(let k=7;k>=0;k--){
+        const pp=Math.max(0,e-k*0.035), x=A.x+(B.x-A.x)*pp, y=A.y+(B.y-A.y)*pp-Math.sin(pp*Math.PI)*70;
+        cx.fillStyle=col; cx.globalAlpha=(1-k/9)*0.7; cx.beginPath(); cx.arc(x,y,34-k*3,0,7); cx.fill();
+      }
+      cx.restore();
+    }else{ // ヒット: 画面の赤フラッシュ・衝撃波・-1
+      const u=Math.min(1,(t-HIT_AT)/900);
+      if(u<1){
+        cx.fillStyle=`rgba(255,60,90,${0.45*(1-u)})`; cx.fillRect(f.loser===0?0:W/2,0,W/2,H);
+        cx.save(); cx.strokeStyle=`rgba(255,255,255,${1-u})`; cx.lineWidth=2+8*(1-u); cx.beginPath(); cx.arc(B.x,B.y,30+170*u,0,7); cx.stroke();
+        cx.font="bold 76px sans-serif"; cx.textAlign="center"; cx.lineWidth=6;
+        cx.strokeStyle=`rgba(255,255,255,${1-u*u})`; cx.fillStyle=`rgba(255,70,100,${1-u*u})`;
+        cx.strokeText("-1",B.x,B.y-60-70*u); cx.fillText("-1",B.x,B.y-60-70*u); cx.restore();
+      }
+    }
+  }
+  cx.save(); cx.globalCompositeOperation="lighter";
+  for(let i=v.bursts.length-1;i>=0;i--){
+    const q=v.bursts[i]; q.x+=q.vx; q.y+=q.vy; q.vy+=0.15; q.life-=0.025;
+    if(q.life<=0){ v.bursts.splice(i,1); continue; }
+    cx.fillStyle=q.col; cx.globalAlpha=q.life; cx.beginPath(); cx.arc(q.x,q.y,3+5*q.life,0,7); cx.fill();
+  }
+  cx.restore();
+}
+function vsFrame(now){
+  const v=vs, pose=POSES[v.cur], players=assignPlayers(lmsAll);
+  const active=v.phase==="prep"||v.phase==="hold", running=active||v.phase==="show";
+  const dt=now-(vsFrame.last||now); vsFrame.last=now;
+  const pls=[];
+  for(let i=0;i<2;i++){
+    const lm=players[i], id=["L","R"][i]; let per=null, score=0;
+    if(lm && running){ const j=judge(pose,lm); per=j.per; score=j.score; }
+    v.smooth[i] = lm && running ? v.smooth[i]*0.7+score*0.3 : v.smooth[i]*0.9;
+    const sh=Math.round(v.smooth[i]);
+    if(active && lm && sh>=100) v.streak[i]+=dt; else v.streak[i]=0;
+    v.aura[i]+=(Math.min(1,v.streak[i]/1500)-v.aura[i])*0.15; if(v.aura[i]<0.01) v.aura[i]=0;
+    if(lm) v.centers[i]={x:(1-(lm[11].x+lm[12].x+lm[23].x+lm[24].x)/4)*cam.width, y:(lm[11].y+lm[12].y+lm[23].y+lm[24].y)/4*cam.height};
+    pls.push({lm, per, aura:v.aura[i], tag:"P"+(i+1), col:VCOL[i]});
+    $("live"+id).textContent=sh; $("fill"+id).style.width=sh+"%"; $("fill"+id).style.background=colorFor(sh/100);
+    const level = active&&lm ? (sh>=100?"excellent":sh>=80?"good":"") : "";
+    if(RANK[level]>RANK[v.lastLevel[i]] && now-lastSnd[level]>1500){ playSfx(level); lastSnd[level]=now; }
+    v.lastLevel[i]=level;
+  }
+  drawCam(pls); drawTarget(v.phase==="done"?null:pose); drawFx(now);
+  if(v.phase==="done"){ stage.style.transform=""; return; }
+
+  // ダメージ処理(弾が当たった瞬間にHPを減らす)
+  const f=v.fx;
+  if(f && !f.applied && now-f.t0>=HIT_AT){
+    f.applied=true; v.hp[f.loser]--; renderHearts(); playHit();
+    const B=v.centers[f.loser];
+    for(let k=0;k<40;k++){ const a=Math.random()*Math.PI*2, sp=2+Math.random()*6; v.bursts.push({x:B.x,y:B.y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp-2,life:1,col:k%2?"#ffffff":VCOL[f.winner]}); }
+  }
+  const st = f ? now-f.t0-HIT_AT : -1;
+  stage.style.transform = (st>=0 && st<450) ? `translate(${(Math.random()-.5)*28*(1-st/450)}px,${(Math.random()-.5)*28*(1-st/450)}px)` : "";
+
+  // 進行
+  const el=now-v.t0, both=players[0]&&players[1];
+  $("poseName").textContent=`ROUND ${v.round}  ${pose.hard?"★ ":""}${pose.name}`;
+  if(v.phase==="prep"){
+    $("judge").textContent=""; $("judge").dataset.level="";
+    setUI(both?"お手本をまねて構えて!":"二人とも映ってね(P1=左 / P2=右)", Math.ceil((PREP-el)/1000));
+    if(el>=PREP){ v.phase="hold"; v.t0=now; v.best=[0,0]; v.buf=[[],[]]; }
+  }else if(v.phase==="hold"){
+    const hold=pose.hard?HOLD_HARD:HOLD;
+    setUI(pose.hard?"キープ!ぐらつかないで":"キープ!", Math.ceil((hold-el)/1000));
+    for(let i=0;i<2;i++){
+      const b=v.buf[i]; b.push({t:now,v:v.smooth[i]}); while(b.length && now-b[0].t>1500) b.shift();
+      if(pose.hard){ if(el>=1500) v.best[i]=Math.max(v.best[i], b.reduce((a,c)=>a+c.v,0)/b.length); }
+      else v.best[i]=Math.max(v.best[i], v.smooth[i]);
+    }
+    if(el>=hold){
+      const sc=v.best.map(Math.round); v.scores=sc;
+      const w = sc[0]>sc[1] ? 0 : sc[1]>sc[0] ? 1 : -1;
+      if(w>=0) v.fx={winner:w,loser:1-w,t0:now,applied:false};
+      v.phase="show"; v.t0=now;
+      $("judge").textContent = w<0 ? "DRAW" : `P${w+1} WIN!`;
+      $("judge").dataset.level = w<0 ? "draw" : "p"+(w+1);
+    }
+  }else if(v.phase==="show"){
+    setUI(`P1 ${v.scores[0]}点 − ${v.scores[1]}点 P2`, "");
+    if(el>=SHOW_VS){
+      if(v.hp[0]<=0||v.hp[1]<=0) vsEnd();
+      else{ v.round++; vsNextPose(); v.phase="prep"; v.t0=now; v.fx=null; v.smooth=[0,0]; }
+    }
+  }
+}
+function vsEnd(){
+  const v=vs, w=v.hp[0]>0?0:1; v.phase="done"; stopBgm(); stage.style.transform="";
+  $("judge").textContent=""; $("judge").dataset.level="";
+  setUI("K.O.!",""); $("poseName").textContent="結果";
+  $("ovTitle").textContent=`P${w+1} の勝ち!`;
+  $("ovText").textContent=`${v.round}ラウンドの激闘 — 残りHP  P1: ${Math.max(0,v.hp[0])}  /  P2: ${Math.max(0,v.hp[1])}`;
+  $("startBtn").textContent="もう一度あそぶ";
+  $("overlay").classList.remove("hidden"); playKo();
+}
+function playHit(){
+  if(!actx||muted) return; const t=actx.currentTime+0.01;
+  const o=actx.createOscillator(), g=actx.createGain(); o.type="sawtooth";
+  o.frequency.setValueAtTime(220,t); o.frequency.exponentialRampToValueAtTime(40,t+0.25);
+  g.gain.setValueAtTime(0.4,t); g.gain.exponentialRampToValueAtTime(0.0001,t+0.3);
+  o.connect(g); g.connect(actx.destination); o.start(t); o.stop(t+0.32);
+  const n=actx.createBuffer(1,Math.floor(actx.sampleRate*0.25),actx.sampleRate), d=n.getChannelData(0);
+  for(let i=0;i<d.length;i++) d[i]=(Math.random()*2-1)*(1-i/d.length);
+  const src=actx.createBufferSource(), g2=actx.createGain(); src.buffer=n; g2.gain.value=0.35; src.connect(g2); g2.connect(actx.destination); src.start(t);
+}
+function playKo(){ if(!actx||muted) return; [392,330,262,196].forEach((f,i)=>tone(f,actx.currentTime+0.02+i*.18,.3,"sawtooth",.2)); }
+
+// ----- 効果音(外部ファイル不要・ブラウザ内で合成)-----
+let actx=null, muted=false, lastLevel="";
+const lastSnd={good:0, excellent:0}, RANK={"":0, good:1, excellent:2};
+function initAudio(){
+  try{ actx = actx || new (window.AudioContext||window.webkitAudioContext)(); if(actx.state==="suspended") actx.resume(); }catch(e){}
+}
+function tone(freq,t0,dur,type,vol){
+  const o=actx.createOscillator(), g=actx.createGain();
+  o.type=type; o.frequency.value=freq;
+  g.gain.setValueAtTime(0.0001,t0);
+  g.gain.exponentialRampToValueAtTime(vol,t0+0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001,t0+dur);
+  o.connect(g); g.connect(actx.destination); o.start(t0); o.stop(t0+dur+0.02);
+}
+function playSfx(kind){
+  if(!actx||muted) return;
+  const t=actx.currentTime+0.02;
+  if(kind==="good"){ tone(659.25,t,.14,"triangle",.18); tone(880,t+.1,.22,"triangle",.18); }
+  else{
+    [523.25,659.25,783.99,1046.5,1318.5].forEach((f,i)=>tone(f,t+i*.07,.25,"triangle",.2));
+    tone(1046.5,t+.4,.7,"sine",.15); tone(1568,t+.4,.7,"sine",.1);
+  }
+}
+$("muteBtn").addEventListener("click",()=>{ muted=!muted; $("muteBtn").textContent = muted?"音 OFF":"音 ON"; initAudio(); if(bgmGain) bgmGain.gain.value = muted?0:BGM_VOL; });
+
+// ----- BGM(ブラウザ内で合成。ループ再生)-----
+let bgmTimer=null, bgmGain=null, nextT=0, bgmStep=0, noiseBuf=null;
+const BGM_VOL=0.16, STEP_SEC=60/124/2;
+const CH=[[110.00,[220.00,261.63,329.63]],[87.31,[174.61,220.00,261.63]],[130.81,[261.63,329.63,392.00]],[98.00,[196.00,246.94,293.66]]]; // Am F C G
+const ARP=[0,1,2,1,0,1,2,1];
+function bgmNote(f,t,dur,type,vol){
+  const o=actx.createOscillator(), g=actx.createGain(); o.type=type; o.frequency.value=f;
+  g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(vol,t+0.01); g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+  o.connect(g); g.connect(bgmGain); o.start(t); o.stop(t+dur+0.02);
+}
+function bgmKick(t){
+  const o=actx.createOscillator(), g=actx.createGain();
+  o.frequency.setValueAtTime(140,t); o.frequency.exponentialRampToValueAtTime(40,t+0.12);
+  g.gain.setValueAtTime(0.6,t); g.gain.exponentialRampToValueAtTime(0.0001,t+0.15);
+  o.connect(g); g.connect(bgmGain); o.start(t); o.stop(t+0.18);
+}
+function bgmHat(t){
+  if(!noiseBuf){ noiseBuf=actx.createBuffer(1,Math.floor(actx.sampleRate*0.05),actx.sampleRate); const d=noiseBuf.getChannelData(0); for(let i=0;i<d.length;i++) d[i]=Math.random()*2-1; }
+  const src=actx.createBufferSource(), f=actx.createBiquadFilter(), g=actx.createGain();
+  src.buffer=noiseBuf; f.type="highpass"; f.frequency.value=7000;
+  g.gain.setValueAtTime(0.25,t); g.gain.exponentialRampToValueAtTime(0.0001,t+0.05);
+  src.connect(f); f.connect(g); g.connect(bgmGain); src.start(t);
+}
+function bgmSchedule(i,t){
+  const ch=CH[Math.floor(i/8)%4], pos=i%8;
+  if(pos%2===0) bgmKick(t); else bgmHat(t);
+  if(pos===0||pos===3||pos===6) bgmNote(ch[0],t,0.28,"sawtooth",0.22);
+  bgmNote(ch[1][ARP[pos]],t,0.18,"triangle",0.2);
+}
+function bgmTick(){ while(nextT < actx.currentTime+0.25){ bgmSchedule(bgmStep,nextT); nextT+=STEP_SEC; bgmStep++; } }
+function startBgm(){
+  if(!actx||bgmTimer) return;
+  if(!bgmGain){ bgmGain=actx.createGain(); bgmGain.connect(actx.destination); }
+  bgmGain.gain.value = muted?0:BGM_VOL; nextT=actx.currentTime+0.1; bgmStep=0; bgmTimer=setInterval(bgmTick,80);
+}
+function stopBgm(){ clearInterval(bgmTimer); bgmTimer=null; }
+
+// ----- 全画面(iPhoneなど非対応の端末は画面いっぱい表示で代用)-----
+const stage = document.querySelector(".stage");
+const fsEl = () => document.fullscreenElement || document.webkitFullscreenElement;
+const refreshFs = () => { $("fsBtn").textContent = (fsEl()||stage.classList.contains("pseudo-fs")) ? "全画面を終了" : "全画面"; };
+$("fsBtn").addEventListener("click", async () => {
+  try{
+    if(fsEl()){ await (document.exitFullscreen||document.webkitExitFullscreen).call(document); }
+    else if(stage.classList.contains("pseudo-fs")){ stage.classList.remove("pseudo-fs"); }
+    else if(stage.requestFullscreen||stage.webkitRequestFullscreen){ await (stage.requestFullscreen||stage.webkitRequestFullscreen).call(stage); }
+    else stage.classList.add("pseudo-fs");
+  }catch(e){ stage.classList.add("pseudo-fs"); }
+  refreshFs();
+});
+document.addEventListener("fullscreenchange", refreshFs);
+document.addEventListener("webkitfullscreenchange", refreshFs);
+
+// ----- 起動 -----
+$("startBtn").addEventListener("click", async () => {
+  initAudio();
+  const btn = $("startBtn");
+  if(landmarker){ startGame(); return; }
+  btn.disabled = true; btn.textContent = "準備中…(初回は読み込みに数秒かかります)";
+  try{
+    const stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"user", width:{ideal:640}, height:{ideal:480}}, audio:false});
+    video.srcObject = stream; await video.play();
+    cam.width = video.videoWidth || 640; cam.height = video.videoHeight || 480; // 縦持ちのスマホにも対応
+    try{ await navigator.wakeLock?.request("screen"); }catch(e){}
+    const fileset = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm");
+    const model = "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task";
+    try{ landmarker = await PoseLandmarker.createFromOptions(fileset,{baseOptions:{modelAssetPath:model,delegate:"GPU"},runningMode:"VIDEO",numPoses:1}); }
+    catch(e){ landmarker = await PoseLandmarker.createFromOptions(fileset,{baseOptions:{modelAssetPath:model,delegate:"CPU"},runningMode:"VIDEO",numPoses:1}); }
+    btn.disabled = false; startGame(); loop();
+  }catch(e){
+    console.error(e); btn.disabled=false; btn.textContent="もう一度試す";
+    let msg = "カメラまたはモデルの読み込みに失敗しました。カメラの許可とネット接続を確認してください。(" + (e.name||e) + ")";
+    if(window.self !== window.top) msg = "プレビュー(埋め込み表示)ではカメラが使えません。ファイルをダウンロードして、ブラウザの新しいタブで直接開いてください。";
+    else if(!window.isSecureContext) msg = "このページはHTTPSでないためカメラを使えません。https:// のURLか http://localhost で開いてください。";
+    else if(e.name==="NotAllowedError") msg = "カメラが許可されていません。アドレスバー左のアイコンからカメラを「許可」にして、ページを再読み込みしてください。OSの設定でブラウザのカメラ使用がオフの場合もあります。";
+    else if(e.name==="NotFoundError") msg = "カメラが見つかりません。接続を確認してください。";
+    else if(e.name==="NotReadableError") msg = "カメラがほかのアプリ(Zoomなど)で使用中です。閉じてからもう一度試してください。";
+    $("ovText").textContent = msg;
+  }
+});
+</script>
+</body>
+</html>
