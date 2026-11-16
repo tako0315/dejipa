@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>うなずき！大食いチャレンジ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@500;800&display=swap" rel="stylesheet">
+<style>
+:root { --ink:#1b1b1b; --white:#ffffff; --red:#e8392b; --blue:#1f6fe0; --yellow:#ffc81e; --green:#22a45a; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: var(--ink); }
+body {
+  font-family: "M PLUS Rounded 1c", "Hiragino Maru Gothic ProN", "BIZ UDPGothic", "Meiryo", sans-serif;
+  font-weight: 800; color: var(--ink); user-select: none; -webkit-user-select: none; touch-action: manipulation;
+}
+#stage { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+video { display: none; }
+.hidden { display: none !important; }
+
+.hud { position: fixed; top: 16px; left: 16px; right: 16px; display: flex; justify-content: space-between; pointer-events: none; }
+.pill {
+  background: var(--white); border: 3px solid var(--ink); border-radius: 999px;
+  padding: 6px 18px; font-size: 30px; line-height: 1.1; display: flex; align-items: center; gap: 8px; min-width: 90px; justify-content: center;
+}
+.pill svg { width: 28px; height: 28px; display: block; }
+.pill.hurry { background: var(--red); color: var(--white); }
+.pill.bump { animation: bump .3s ease-out; }
+@keyframes bump { 40% { transform: scale(1.2); } }
+
+.tip {
+  position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+  background: var(--white); border: 3px solid var(--ink); border-radius: 999px;
+  padding: 8px 22px; font-size: 20px; white-space: nowrap; pointer-events: none;
+}
+.big {
+  position: fixed; left: 50%; top: 45%; transform: translate(-50%,-50%); opacity: 0;
+  font-size: min(24vw, 180px); color: var(--white); white-space: nowrap; pointer-events: none; line-height: 1;
+  text-shadow: 5px 0 var(--ink), -5px 0 var(--ink), 0 5px var(--ink), 0 -5px var(--ink),
+               4px 4px var(--ink), -4px 4px var(--ink), 4px -4px var(--ink), -4px -4px var(--ink), 0 10px var(--ink);
+}
+.big.show { animation: pop .8s ease-out forwards; }
+@keyframes pop {
+  0% { transform: translate(-50%,-50%) scale(.3); opacity: 0; }
+  25% { transform: translate(-50%,-50%) scale(1.12); opacity: 1; }
+  40% { transform: translate(-50%,-50%) scale(1); }
+  80% { opacity: 1; }
+  100% { transform: translate(-50%,-50%) scale(1); opacity: 0; }
+}
+#flash { position: fixed; inset: 0; background: var(--white); opacity: 0; pointer-events: none; }
+#flash.on { animation: flash .35s ease-out; }
+@keyframes flash { 0% { opacity: .85; } 100% { opacity: 0; } }
+
+.screen { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.panel {
+  background: var(--white); border: 4px solid var(--ink); border-radius: 28px;
+  padding: 24px 28px 28px; text-align: center; width: 100%; max-width: 440px;
+}
+.panel h1 { font-size: 32px; line-height: 1.25; margin-bottom: 12px; }
+.panel h1 span { color: var(--red); }
+.rule { display: block; width: 100%; max-width: 320px; height: auto; margin: 0 auto 18px; }
+.note { margin-top: 14px; font-size: 15px; font-weight: 500; color: #555; }
+.btn {
+  font: inherit; font-size: 26px; color: var(--white); background: var(--red);
+  border: 4px solid var(--ink); border-radius: 999px; padding: 10px 34px 12px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 10px; box-shadow: 0 6px 0 var(--ink);
+}
+.btn svg { width: 26px; height: 26px; }
+.btn:active { transform: translateY(4px); box-shadow: 0 2px 0 var(--ink); }
+.btn:disabled { background: #b9b9b9; cursor: wait; }
+.res-num { font-size: 110px; line-height: 1; margin: 6px 0 2px; }
+.res-unit { font-size: 22px; margin-bottom: 22px; }
+</style>
+</head>
+<body>
+<video id="video" playsinline muted></video>
+<canvas id="stage"></canvas>
+<div id="flash"></div>
+
+<div class="hud hidden" id="hud">
+  <div class="pill" id="scorePill">
+    <svg viewBox="0 0 28 28"><path d="M14 3 C18 3 26 18 25 22 C24 25 4 25 3 22 C2 18 10 3 14 3 Z" fill="#fff" stroke="#1b1b1b" stroke-width="2.5" stroke-linejoin="round"/><rect x="9" y="16" width="10" height="8" fill="#1b1b1b"/></svg>
+    <span id="scoreTxt">0</span>
+  </div>
+  <div class="pill" id="timePill">
+    <svg viewBox="0 0 28 28"><circle cx="14" cy="15" r="11" fill="#fff" stroke="#1b1b1b" stroke-width="3"/><path d="M14 9 V15 L18 18" fill="none" stroke="#1b1b1b" stroke-width="3" stroke-linecap="round"/></svg>
+    <span id="timeTxt">30</span>
+  </div>
+</div>
+<div class="tip hidden" id="tip"></div>
+<div class="big" id="big"></div>
+
+<div class="screen" id="title">
+  <div class="panel">
+    <h1>うなずき！<br><span>大食いチャレンジ</span></h1>
+    <svg class="rule" viewBox="0 0 320 150" aria-hidden="true">
+      <!-- あける → たべもの -->
+      <circle cx="70" cy="58" r="40" fill="#ffd9b3" stroke="#1b1b1b" stroke-width="4"/>
+      <circle cx="56" cy="48" r="4" fill="#1b1b1b"/><circle cx="84" cy="48" r="4" fill="#1b1b1b"/>
+      <ellipse cx="70" cy="72" rx="13" ry="12" fill="#1b1b1b"/>
+      <path d="M128 30 C124 30 108 54 110 60 C112 64 146 64 148 60 C150 54 132 30 128 30 Z" fill="#fff" stroke="#1b1b1b" stroke-width="3.5" stroke-linejoin="round"/>
+      <rect x="120" y="48" width="16" height="13" fill="#1b1b1b"/>
+      <circle cx="128" cy="124" r="0"/>
+      <circle cx="70" cy="128" r="14" fill="#22a45a" stroke="#1b1b1b" stroke-width="3.5"/>
+      <path d="M63 128 L68 133 L77 123" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <!-- とじる → ばくだん -->
+      <circle cx="220" cy="58" r="40" fill="#ffd9b3" stroke="#1b1b1b" stroke-width="4"/>
+      <circle cx="206" cy="48" r="4" fill="#1b1b1b"/><circle cx="234" cy="48" r="4" fill="#1b1b1b"/>
+      <path d="M210 74 H230" stroke="#1b1b1b" stroke-width="5" stroke-linecap="round"/>
+      <circle cx="285" cy="62" r="17" fill="#1b1b1b"/>
+      <path d="M292 46 Q298 36 306 36" fill="none" stroke="#1b1b1b" stroke-width="4" stroke-linecap="round"/>
+      <circle cx="307" cy="35" r="5" fill="#ffc81e" stroke="#1b1b1b" stroke-width="2"/>
+      <circle cx="220" cy="128" r="14" fill="#22a45a" stroke="#1b1b1b" stroke-width="3.5"/>
+      <path d="M213 128 L218 133 L227 123" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <button class="btn" id="startBtn" disabled>
+      <svg viewBox="0 0 26 26"><path d="M7 4 L22 13 L7 22 Z" fill="#fff" stroke="#1b1b1b" stroke-width="2.5" stroke-linejoin="round"/></svg>
+      スタート
+    </button>
+    <p class="note" id="note">じゅんびちゅう…</p>
+  </div>
+</div>
+
+<div class="screen hidden" id="result">
+  <div class="panel">
+    <svg viewBox="0 0 28 28" width="56" height="56"><path d="M14 3 C18 3 26 18 25 22 C24 25 4 25 3 22 C2 18 10 3 14 3 Z" fill="#fff" stroke="#1b1b1b" stroke-width="2.5" stroke-linejoin="round"/><rect x="9" y="16" width="10" height="8" fill="#1b1b1b"/></svg>
+    <div class="res-num" id="resNum">0</div>
+    <div class="res-unit">こ たべた！</div>
+    <button class="btn" id="againBtn">
+      <svg viewBox="0 0 26 26"><path d="M20 8 A9 9 0 1 0 22 15" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round"/><path d="M15 3 L22 8 L15 12 Z" fill="#fff"/></svg>
+      もういちど
+    </button>
+  </div>
+</div>
+
+<script type="module">
+/* ================= せってい ================= */
+const MP_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
+const MODEL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
+const GAME_TIME = 30;
+const OPEN_JAW = 0.28;      // くちが ひらいたと みなす jawOpen の あたい
+const OPEN_RATIO = 0.075;   // くちびるの すきま ÷ かおの たかさ
+const BAD_RATE = 0.25;      // ばくだん・むしが でる わりあい
+const INK = "#1b1b1b", WHITE = "#ffffff", RED = "#e8392b", YELLOW = "#ffc81e", GREEN = "#22a45a";
+
+/* ================= きほん ================= */
+const $ = (id) => document.getElementById(id);
+const video = $("video"), cv = $("stage"), ctx = cv.getContext("2d");
+let W = 0, H = 0;
+function resize() {
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  W = innerWidth; H = innerHeight;
+  cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+addEventListener("resize", resize); resize();
+
+let cov = { s: 1, x: 0, y: 0, w: 0, h: 0 };
+function updateCover() {
+  const vw = video.videoWidth || 1280, vh = video.videoHeight || 720;
+  const s = Math.max(W / vw, H / vh);
+  cov = { s, w: vw * s, h: vh * s, x: (W - vw * s) / 2, y: (H - vh * s) / 2 };
+}
+const toScreen = (p) => ({ x: cov.x + (1 - p.x) * cov.w, y: cov.y + p.y * cov.h });
+function drawVideo() {
+  if (video.readyState >= 2) {
+    ctx.save(); ctx.translate(W, 0); ctx.scale(-1, 1);
+    ctx.drawImage(video, cov.x, cov.y, cov.w, cov.h);
+    ctx.restore();
+  } else { ctx.fillStyle = INK; ctx.fillRect(0, 0, W, H); }
+}
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const rand = (a, b) => a + Math.random() * (b - a);
+
+/* ================= こうかおん ================= */
+let AC = null;
+function audioOn() {
+  try { if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)(); if (AC.state === "suspended") AC.resume(); } catch (e) {}
+}
+function tone(f, at, dur, type = "sine", vol = 0.2, f2 = 0) {
+  if (!AC) return;
+  const t = AC.currentTime + at, o = AC.createOscillator(), g = AC.createGain();
+  o.type = type; o.frequency.setValueAtTime(f, t);
+  if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + dur);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(vol, t + 0.012);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g); g.connect(AC.destination); o.start(t); o.stop(t + dur + 0.05);
+}
+function noise(at, dur, vol = 0.2, freq = 1000, q = 1) {
+  if (!AC) return;
+  const t = AC.currentTime + at, len = Math.max(1, Math.floor(AC.sampleRate * dur));
+  const buf = AC.createBuffer(1, len, AC.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  const s = AC.createBufferSource(); s.buffer = buf;
+  const f = AC.createBiquadFilter(); f.type = "bandpass"; f.frequency.value = freq; f.Q.value = q;
+  const g = AC.createGain(); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  s.connect(f); f.connect(g); g.connect(AC.destination); s.start(t); s.stop(t + dur + 0.02);
+}
+const SE = {
+  count() { tone(660, 0, 0.14, "square", 0.1); },
+  go() { tone(990, 0, 0.35, "square", 0.12); },
+  throw() { tone(500, 0, 0.12, "sine", 0.06, 900); },
+  eat(n) { noise(0, 0.08, 0.3, 2500, 1.5); tone(220, 0, 0.1, "square", 0.12, 140); tone(700 + Math.min(n, 20) * 20, 0.08, 0.12, "triangle", 0.15); },
+  boom() { noise(0, 0.6, 0.5, 200, 0.5); tone(120, 0, 0.5, "square", 0.2, 40); },
+  yuck() { tone(260, 0, 0.4, "sawtooth", 0.1, 120); tone(250, 0.05, 0.4, "sawtooth", 0.08, 110); },
+  safe() { tone(880, 0, 0.08, "sine", 0.08); },
+  tick() { tone(1000, 0, 0.05, "square", 0.08); },
+  end() { tone(880, 0, 0.12, "square", 0.12); tone(660, 0.14, 0.12, "square", 0.12); [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.4 + i * 0.12, 0.3, "triangle", 0.18)); },
+};
+
+/* ================= UI ================= */
+function showBig(text) {
+  const b = $("big"); b.textContent = text;
+  b.classList.remove("show"); void b.offsetWidth; b.classList.add("show");
+}
+let tipNow = null;
+function setTip(text) {
+  if (text === tipNow) return; tipNow = text;
+  const t = $("tip"); if (text) { t.textContent = text; t.classList.remove("hidden"); } else t.classList.add("hidden");
+}
+function bump(id) { const e = $(id); e.classList.remove("bump"); void e.offsetWidth; e.classList.add("bump"); }
+function flash() { const f = $("flash"); f.classList.remove("on"); void f.offsetWidth; f.classList.add("on"); }
+
+/* ================= カメラ と モデル ================= */
+let detector = null;
+async function init() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+    video.srcObject = stream; await video.play();
+  } catch (e) { $("note").textContent = "カメラが つかえません。きょかを してね"; return; }
+  try {
+    const { FaceLandmarker, FilesetResolver } = await import(MP_URL + "/vision_bundle.mjs");
+    const fs = await FilesetResolver.forVisionTasks(MP_URL + "/wasm");
+    const make = (delegate) => FaceLandmarker.createFromOptions(fs, {
+      baseOptions: { modelAssetPath: MODEL, delegate }, runningMode: "VIDEO", numFaces: 1, outputFaceBlendshapes: true,
+    });
+    try { detector = await make("GPU"); } catch (e) { detector = await make("CPU"); }
+  } catch (e) { $("note").textContent = "よみこみに しっぱい。インターネットを たしかめてね"; return; }
+  $("startBtn").disabled = false;
+  $("note").textContent = "くちを パクッと あけて たべよう";
+}
+
+let lastVT = -1, lastTS = 0, mouth = null, faceT = 0, isOpen = false;
+function detect(now) {
+  if (!detector || video.readyState < 2 || video.currentTime === lastVT) return;
+  lastVT = video.currentTime;
+  let ts = performance.now(); if (ts <= lastTS) ts = lastTS + 1; lastTS = ts;
+  try {
+    const r = detector.detectForVideo(video, ts);
+    const lm = r.faceLandmarks && r.faceLandmarks[0];
+    if (!lm) return;
+    const up = toScreen(lm[13]), lo = toScreen(lm[14]), top = toScreen(lm[10]), chin = toScreen(lm[152]);
+    const a = toScreen(lm[234]), b = toScreen(lm[454]);
+    const fh = Math.hypot(top.x - chin.x, top.y - chin.y) || 1;
+    const ratio = Math.hypot(up.x - lo.x, up.y - lo.y) / fh;
+    let jaw = 0;
+    const bs = r.faceBlendshapes && r.faceBlendshapes[0];
+    if (bs) { const c = bs.categories.find((c) => c.categoryName === "jawOpen"); if (c) jaw = c.score; }
+    isOpen = jaw > OPEN_JAW || ratio > OPEN_RATIO;
+    const mx = (up.x + lo.x) / 2, my = (up.y + lo.y) / 2, fw = Math.hypot(a.x - b.x, a.y - b.y);
+    mouth = mouth ? { x: mouth.x * 0.4 + mx * 0.6, y: mouth.y * 0.4 + my * 0.6, fw: mouth.fw * 0.8 + fw * 0.2 } : { x: mx, y: my, fw };
+    faceT = now;
+  } catch (e) {}
+}
+const faceSeen = (now) => mouth && now - faceT < 400;
+const SIZE = () => clamp(mouth ? mouth.fw * 0.3 : 50, 26, 80);
+
+/* ================= たべもの ================= */
+const GOOD = ["onigiri", "apple", "cake", "donut"];
+function drawThing(kind, s, now) {
+  ctx.lineWidth = Math.max(2.5, s * 0.07); ctx.strokeStyle = INK; ctx.lineJoin = "round"; ctx.lineCap = "round";
+  if (kind === "onigiri") {
+    ctx.beginPath(); ctx.moveTo(0, -s); ctx.quadraticCurveTo(s * 0.25, -s, s * 0.95, s * 0.55); ctx.quadraticCurveTo(s, s * 0.85, s * 0.6, s * 0.85);
+    ctx.lineTo(-s * 0.6, s * 0.85); ctx.quadraticCurveTo(-s, s * 0.85, -s * 0.95, s * 0.55); ctx.quadraticCurveTo(-s * 0.25, -s, 0, -s); ctx.closePath();
+    ctx.fillStyle = WHITE; ctx.fill(); ctx.stroke();
+    ctx.fillStyle = INK; ctx.fillRect(-s * 0.35, s * 0.25, s * 0.7, s * 0.6);
+  } else if (kind === "apple") {
+    ctx.beginPath(); ctx.moveTo(0, -s * 0.7); ctx.lineTo(s * 0.1, -s * 1.05); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(s * 0.35, -s * 0.9, s * 0.28, s * 0.13, -0.5, 0, Math.PI * 2); ctx.fillStyle = GREEN; ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.arc(-s * 0.35, 0, s * 0.62, 0, Math.PI * 2); ctx.arc(s * 0.35, 0, s * 0.62, 0, Math.PI * 2);
+    ctx.fillStyle = RED; ctx.fill();
+    ctx.beginPath(); ctx.ellipse(0, s * 0.05, s * 0.92, s * 0.78, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = WHITE; ctx.beginPath(); ctx.ellipse(-s * 0.4, -s * 0.25, s * 0.12, s * 0.2, 0.4, 0, Math.PI * 2); ctx.fill();
+  } else if (kind === "cake") {
+    ctx.beginPath(); ctx.moveTo(-s, s * 0.7); ctx.lineTo(s, s * 0.7); ctx.lineTo(s, -s * 0.1); ctx.lineTo(-s, -s * 0.5); ctx.closePath();
+    ctx.fillStyle = YELLOW; ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-s, -s * 0.5); ctx.lineTo(s, -s * 0.1); ctx.lineTo(s, s * 0.12); ctx.lineTo(-s, -s * 0.28); ctx.closePath();
+    ctx.fillStyle = WHITE; ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-s, s * 0.25); ctx.lineTo(s, s * 0.35); ctx.strokeStyle = "#ff8d8d"; ctx.lineWidth = s * 0.12; ctx.stroke();
+    ctx.strokeStyle = INK; ctx.lineWidth = Math.max(2.5, s * 0.07);
+    ctx.beginPath(); ctx.arc(-s * 0.2, -s * 0.62, s * 0.28, 0, Math.PI * 2); ctx.fillStyle = RED; ctx.fill(); ctx.stroke();
+  } else if (kind === "donut") {
+    ctx.beginPath(); ctx.arc(0, 0, s * 0.95, 0, Math.PI * 2); ctx.arc(0, 0, s * 0.32, 0, Math.PI * 2, true);
+    ctx.fillStyle = "#d9a066"; ctx.fill("evenodd"); ctx.stroke();
+    ctx.beginPath(); ctx.arc(0, 0, s * 0.78, 0, Math.PI * 2); ctx.arc(0, 0, s * 0.42, 0, Math.PI * 2, true);
+    ctx.fillStyle = "#ff8fb1"; ctx.fill("evenodd");
+    const cs = [YELLOW, WHITE, GREEN, "#1f6fe0"];
+    for (let i = 0; i < 8; i++) {
+      const a = i * 0.8, r = s * 0.6;
+      ctx.save(); ctx.translate(Math.cos(a) * r, Math.sin(a) * r); ctx.rotate(a * 2);
+      ctx.fillStyle = cs[i % 4]; ctx.fillRect(-s * 0.1, -s * 0.03, s * 0.2, s * 0.06); ctx.restore();
+    }
+  } else if (kind === "bomb") {
+    ctx.beginPath(); ctx.moveTo(s * 0.4, -s * 0.7); ctx.quadraticCurveTo(s * 0.7, -s * 1.2, s * 1.0, -s * 1.05); ctx.stroke();
+    ctx.fillStyle = "#555"; ctx.fillRect(s * 0.15, -s * 0.95, s * 0.45, s * 0.35); ctx.strokeRect(s * 0.15, -s * 0.95, s * 0.45, s * 0.35);
+    ctx.beginPath(); ctx.arc(0, 0, s * 0.85, 0, Math.PI * 2); ctx.fillStyle = INK; ctx.fill();
+    ctx.fillStyle = WHITE; ctx.beginPath(); ctx.ellipse(-s * 0.35, -s * 0.35, s * 0.12, s * 0.2, 0.6, 0, Math.PI * 2); ctx.fill();
+    const k = 0.8 + 0.3 * Math.sin(now / 40);
+    ctx.save(); ctx.translate(s * 1.05, -s * 1.05); ctx.scale(k, k);
+    ctx.beginPath();
+    for (let i = 0; i < 12; i++) { const a = i * Math.PI / 6, r = i % 2 ? s * 0.16 : s * 0.38; ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r); }
+    ctx.closePath(); ctx.fillStyle = YELLOW; ctx.fill(); ctx.lineWidth = 2; ctx.stroke(); ctx.restore();
+  } else if (kind === "bug") {
+    ctx.lineWidth = Math.max(2, s * 0.08);
+    ctx.beginPath();
+    for (const sd of [-1, 1]) for (const yy of [-0.3, 0.1, 0.5]) { ctx.moveTo(sd * s * 0.4, s * yy); ctx.lineTo(sd * s * 0.95, s * (yy + 0.15 * Math.sin(now / 50 + yy * 5))); }
+    ctx.moveTo(-s * 0.15, -s * 0.75); ctx.lineTo(-s * 0.45, -s * 1.1); ctx.moveTo(s * 0.15, -s * 0.75); ctx.lineTo(s * 0.45, -s * 1.1);
+    ctx.stroke();
+    ctx.lineWidth = Math.max(2.5, s * 0.07);
+    ctx.beginPath(); ctx.ellipse(0, s * 0.15, s * 0.5, s * 0.7, 0, 0, Math.PI * 2); ctx.fillStyle = "#5a3d2b"; ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, -s * 0.5); ctx.lineTo(0, s * 0.85); ctx.stroke();
+    ctx.beginPath(); ctx.arc(0, -s * 0.62, s * 0.3, 0, Math.PI * 2); ctx.fillStyle = INK; ctx.fill();
+    ctx.fillStyle = WHITE;
+    ctx.beginPath(); ctx.arc(-s * 0.12, -s * 0.66, s * 0.08, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(s * 0.12, -s * 0.66, s * 0.08, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+/* ================= ゲーム ================= */
+let state = "loading", stateT = 0, lastCount = -1, lastSec = -1;
+let score = 0, items = [], parts = [], floats = [], nextSpawn = 0, lastArrive = 0, chompT = -1;
+function setState(s) { state = s; stateT = performance.now(); }
+
+function startGame() {
+  audioOn();
+  score = 0; items = []; parts = []; floats = []; lastCount = -1; lastSec = -1;
+  $("scoreTxt").textContent = "0"; $("timeTxt").textContent = GAME_TIME; $("timePill").classList.remove("hurry");
+  $("title").classList.add("hidden"); $("result").classList.add("hidden"); $("hud").classList.remove("hidden");
+  setState("count");
+}
+function endGame() {
+  setState("result"); items = []; setTip(null); SE.end(); showBig("おしまい!");
+  $("resNum").textContent = score;
+  setTimeout(() => { $("hud").classList.add("hidden"); $("result").classList.remove("hidden"); }, 1100);
+}
+
+function spawn(now, elapsed) {
+  const prog = clamp(elapsed / GAME_TIME, 0, 1);
+  const dur = (1.8 - 0.6 * prog) * 1000;
+  let t0 = now;
+  if (t0 + dur < lastArrive + 550) t0 = lastArrive + 550 - dur;
+  lastArrive = t0 + dur;
+  const bad = elapsed > 3 && Math.random() < BAD_RATE;
+  const kind = bad ? (Math.random() < 0.6 ? "bomb" : "bug") : GOOD[Math.floor(Math.random() * GOOD.length)];
+  const side = Math.random() < 0.5 ? -1 : 1;
+  const my = mouth ? mouth.y : H / 2;
+  items.push({
+    kind, bad, side, t0, dur,
+    sx: side < 0 ? -80 : W + 80, sy: clamp(my + rand(-0.3, 0.2) * H, 60, H - 40),
+    arc: rand(0.05, 0.25) * H, x: -999, y: -999, px: 0, py: 0, rot: 0, vr: rand(-6, 6),
+    mode: "wait",
+  });
+}
+
+function popFloat(x, y, text, color) { floats.push({ x, y, text, color, t: 0 }); }
+function crumbs(x, y, colors, n = 10, sp = 300) {
+  for (let i = 0; i < n; i++) {
+    const a = rand(0, Math.PI * 2), v = rand(sp * 0.4, sp);
+    parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 120, r: rand(4, 9), c: colors[i % colors.length], t: 0, life: 0.6 });
+  }
+}
+const COLORS = { onigiri: [WHITE, INK], apple: [RED, WHITE], cake: [YELLOW, WHITE, RED], donut: ["#d9a066", "#ff8fb1"] };
+
+let lastNow = performance.now();
+function update(now) {
+  const dt = Math.min(0.05, (now - lastNow) / 1000); lastNow = now;
+  for (const p of parts) { p.t += dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 900 * dt; }
+  parts = parts.filter((p) => p.t < p.life);
+  for (const f of floats) f.t += dt;
+  floats = floats.filter((f) => f.t < 0.8);
+
+  if (state === "count") {
+    if (!faceSeen(now)) { stateT = now; lastCount = -1; setTip("かおを カメラに うつしてね"); return; }
+    setTip(null);
+    const t = (now - stateT) / 1000, n = 3 - Math.floor(t);
+    if (n !== lastCount && n > 0) { lastCount = n; showBig(String(n)); SE.count(); }
+    if (t >= 3) { showBig("スタート!"); SE.go(); setState("play"); nextSpawn = now + 600; lastArrive = 0; }
+    return;
+  }
+  if (state !== "play") return;
+
+  const elapsed = (now - stateT) / 1000, left = GAME_TIME - elapsed;
+  const sec = Math.max(0, Math.ceil(left));
+  if (sec !== lastSec) {
+    lastSec = sec; $("timeTxt").textContent = sec;
+    if (sec <= 5 && sec > 0) { $("timePill").classList.add("hurry"); SE.tick(); }
+  }
+  if (left <= 0) { endGame(); return; }
+  const seen = faceSeen(now);
+  setTip(seen ? null : "かおが みえないよ");
+
+  if (now >= nextSpawn && left > 1.6) {
+    spawn(now, elapsed);
+    nextSpawn = now + (0.95 - 0.35 * clamp(elapsed / GAME_TIME, 0, 1)) * 1000;
+  }
+
+  const mx = mouth ? mouth.x : W / 2, my = mouth ? mouth.y : H / 2;
+  for (const it of items) {
+    if (it.mode === "wait") { if (now >= it.t0) { it.mode = "fly"; SE.throw(); } else continue; }
+    if (it.mode === "fly") {
+      const p = (now - it.t0) / it.dur;
+      it.px = it.x; it.py = it.y;
+      it.x = it.sx + (mx - it.sx) * p;
+      it.y = it.sy + (my - it.sy) * p - Math.sin(Math.PI * clamp(p, 0, 1)) * it.arc;
+      it.rot += it.vr * dt;
+      if (p >= 0.86 && p <= 1.1 && seen && isOpen) {
+        it.mode = "gone"; chompT = now;
+        if (!it.bad) {
+          score++; $("scoreTxt").textContent = score; bump("scorePill");
+          SE.eat(score); crumbs(mx, my, COLORS[it.kind]); popFloat(mx, my - SIZE() * 1.5, "+1", WHITE);
+        } else if (it.kind === "bomb") {
+          score = Math.max(0, score - 2); $("scoreTxt").textContent = score; bump("scorePill");
+          SE.boom(); flash(); crumbs(mx, my, [YELLOW, RED, INK, WHITE], 18, 500); popFloat(mx, my - SIZE() * 1.5, "-2", RED);
+        } else {
+          score = Math.max(0, score - 1); $("scoreTxt").textContent = score; bump("scorePill");
+          SE.yuck(); crumbs(mx, my, ["#5a3d2b", INK], 8); popFloat(mx, my - SIZE() * 1.5, "-1", RED);
+        }
+      } else if (p > 1.1) {
+        it.mode = "fall";
+        it.vx = (it.x - it.px) / Math.max(dt, 0.001); it.vy = (it.y - it.py) / Math.max(dt, 0.001);
+        if (it.bad) SE.safe();
+      }
+    } else if (it.mode === "fall") {
+      it.vy += 1600 * dt; it.x += it.vx * dt; it.y += it.vy * dt; it.rot += it.vr * 2 * dt;
+      if (it.y > H + 100 || it.x < -150 || it.x > W + 150) it.mode = "gone";
+    }
+  }
+  items = items.filter((it) => it.mode !== "gone");
+}
+
+function draw(now) {
+  const s = SIZE();
+  // くちの わっか
+  if ((state === "play" || state === "count") && faceSeen(now)) {
+    const chomp = chompT > 0 && now - chompT < 200;
+    const r = s * (isOpen ? 1.15 : 0.95) * (chomp ? 1.2 : 1);
+    ctx.beginPath(); ctx.arc(mouth.x, mouth.y, r, 0, Math.PI * 2);
+    ctx.lineWidth = 10; ctx.strokeStyle = INK; ctx.stroke();
+    ctx.lineWidth = 5; ctx.strokeStyle = isOpen ? YELLOW : WHITE; ctx.stroke();
+  }
+  for (const it of items) {
+    if (it.mode === "wait") continue;
+    ctx.save(); ctx.translate(it.x, it.y); ctx.rotate(it.rot * (it.bad ? 0.3 : 1));
+    if (it.mode === "fall") ctx.globalAlpha = 0.8;
+    drawThing(it.kind, s, now); ctx.restore();
+  }
+  for (const p of parts) {
+    ctx.globalAlpha = 1 - p.t / p.life;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fillStyle = p.c; ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = INK; ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  ctx.font = '800 44px "M PLUS Rounded 1c", sans-serif'; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.lineJoin = "round";
+  for (const f of floats) {
+    ctx.globalAlpha = 1 - f.t / 0.8;
+    const y = f.y - f.t * 90;
+    ctx.lineWidth = 8; ctx.strokeStyle = INK; ctx.strokeText(f.text, f.x, y);
+    ctx.fillStyle = f.color; ctx.fillText(f.text, f.x, y);
+  }
+  ctx.globalAlpha = 1;
+}
+
+function loop(now) {
+  requestAnimationFrame(loop);
+  updateCover(); drawVideo(); detect(now);
+  update(now); draw(now);
+}
+requestAnimationFrame(loop);
+
+$("startBtn").addEventListener("click", startGame);
+$("againBtn").addEventListener("click", startGame);
+init();
+</script>
+</body>
+</html>

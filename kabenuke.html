@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>ギリギリ！壁すり抜け</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@500;800&display=swap" rel="stylesheet">
+<style>
+:root { --ink:#1b1b1b; --white:#ffffff; --red:#e8392b; --blue:#1f6fe0; --yellow:#ffc81e; --green:#22a45a; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: var(--ink); }
+body {
+  font-family: "M PLUS Rounded 1c", "Hiragino Maru Gothic ProN", "BIZ UDPGothic", "Meiryo", sans-serif;
+  font-weight: 800; color: var(--ink); user-select: none; -webkit-user-select: none; touch-action: manipulation;
+}
+#stage { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+video { display: none; }
+.hidden { display: none !important; }
+
+.hud { position: fixed; top: 16px; left: 16px; right: 16px; display: flex; justify-content: space-between; pointer-events: none; }
+.pill {
+  background: var(--white); border: 3px solid var(--ink); border-radius: 999px;
+  padding: 6px 18px; font-size: 30px; line-height: 1.1; display: flex; align-items: center; gap: 8px; min-width: 90px; justify-content: center;
+}
+.pill svg { width: 28px; height: 28px; display: block; }
+.pill.bump { animation: bump .3s ease-out; }
+@keyframes bump { 40% { transform: scale(1.2); } }
+
+.tip {
+  position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+  background: var(--white); border: 3px solid var(--ink); border-radius: 999px;
+  padding: 8px 22px; font-size: 20px; white-space: nowrap; pointer-events: none;
+}
+
+.big {
+  position: fixed; left: 50%; top: 45%; transform: translate(-50%,-50%); opacity: 0;
+  font-size: min(24vw, 180px); color: var(--white); white-space: nowrap; pointer-events: none; line-height: 1;
+  text-shadow: 5px 0 var(--ink), -5px 0 var(--ink), 0 5px var(--ink), 0 -5px var(--ink),
+               4px 4px var(--ink), -4px 4px var(--ink), 4px -4px var(--ink), -4px -4px var(--ink), 0 10px var(--ink);
+}
+.big.red { color: var(--red); }
+.big.show { animation: pop .8s ease-out forwards; }
+@keyframes pop {
+  0% { transform: translate(-50%,-50%) scale(.3); opacity: 0; }
+  25% { transform: translate(-50%,-50%) scale(1.12); opacity: 1; }
+  40% { transform: translate(-50%,-50%) scale(1); }
+  80% { opacity: 1; }
+  100% { transform: translate(-50%,-50%) scale(1); opacity: 0; }
+}
+
+.screen { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.panel {
+  background: var(--white); border: 4px solid var(--ink); border-radius: 28px;
+  padding: 24px 28px 28px; text-align: center; width: 100%; max-width: 440px;
+}
+.panel h1 { font-size: 32px; line-height: 1.25; margin-bottom: 12px; }
+.panel h1 span { color: var(--blue); }
+.rule { display: block; width: 100%; max-width: 300px; height: auto; margin: 0 auto 18px; }
+.note { margin-top: 14px; font-size: 15px; font-weight: 500; color: #555; }
+.btn {
+  font: inherit; font-size: 26px; color: var(--white); background: var(--red);
+  border: 4px solid var(--ink); border-radius: 999px; padding: 10px 34px 12px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 10px; box-shadow: 0 6px 0 var(--ink);
+}
+.btn svg { width: 26px; height: 26px; }
+.btn:active { transform: translateY(4px); box-shadow: 0 2px 0 var(--ink); }
+.btn:disabled { background: #b9b9b9; cursor: wait; }
+.res-num { font-size: 110px; line-height: 1; margin: 6px 0 2px; }
+.res-unit { font-size: 22px; margin-bottom: 22px; }
+</style>
+</head>
+<body>
+<video id="video" playsinline muted></video>
+<canvas id="stage"></canvas>
+
+<div class="hud hidden" id="hud">
+  <div class="pill" id="scorePill">
+    <svg viewBox="0 0 28 28"><rect x="2" y="4" width="24" height="20" rx="3" fill="#1f6fe0" stroke="#1b1b1b" stroke-width="3"/><path d="M2 14H26M14 4V14M8 14V24M20 14V24" stroke="#1b1b1b" stroke-width="2.5"/></svg>
+    <span id="scoreTxt">0</span>
+  </div>
+  <div class="pill" id="lifePill"></div>
+</div>
+<div class="tip hidden" id="tip"></div>
+<div class="big" id="big"></div>
+
+<div class="screen" id="title">
+  <div class="panel">
+    <h1>ギリギリ！<br><span>壁すり抜け</span></h1>
+    <svg class="rule" viewBox="0 0 300 170" aria-hidden="true">
+      <path d="M28 14 L58 34 M272 14 L242 34 M28 156 L58 136 M272 156 L242 136" stroke="#1b1b1b" stroke-width="6" stroke-linecap="round"/>
+      <rect x="62" y="20" width="176" height="130" rx="10" fill="#1f6fe0" stroke="#1b1b1b" stroke-width="5"/>
+      <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+        <g stroke="#1b1b1b">
+          <path d="M150 70 V112" stroke-width="40"/>
+          <path d="M150 74 L118 36 M150 74 L182 36" stroke-width="24"/>
+          <path d="M142 112 L136 150 M158 112 L164 150" stroke-width="24"/>
+          <circle cx="150" cy="50" r="17" fill="#1b1b1b" stroke-width="0"/>
+        </g>
+        <g stroke="#ffffff">
+          <path d="M150 70 V112" stroke-width="31"/>
+          <path d="M150 74 L118 36 M150 74 L182 36" stroke-width="15"/>
+          <path d="M142 112 L136 152 M158 112 L164 152" stroke-width="15"/>
+          <circle cx="150" cy="50" r="12.5" fill="#ffffff" stroke-width="0"/>
+        </g>
+      </g>
+    </svg>
+    <button class="btn" id="startBtn" disabled>
+      <svg viewBox="0 0 26 26"><path d="M7 4 L22 13 L7 22 Z" fill="#fff" stroke="#1b1b1b" stroke-width="2.5" stroke-linejoin="round"/></svg>
+      スタート
+    </button>
+    <p class="note" id="note">じゅんびちゅう…</p>
+  </div>
+</div>
+
+<div class="screen hidden" id="result">
+  <div class="panel">
+    <svg viewBox="0 0 28 28" width="56" height="56"><rect x="2" y="4" width="24" height="20" rx="3" fill="#1f6fe0" stroke="#1b1b1b" stroke-width="3"/><path d="M2 14H26M14 4V14M8 14V24M20 14V24" stroke="#1b1b1b" stroke-width="2.5"/></svg>
+    <div class="res-num" id="resNum">0</div>
+    <div class="res-unit">まい すりぬけた！</div>
+    <button class="btn" id="againBtn">
+      <svg viewBox="0 0 26 26"><path d="M20 8 A9 9 0 1 0 22 15" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round"/><path d="M15 3 L22 8 L15 12 Z" fill="#fff"/></svg>
+      もういちど
+    </button>
+  </div>
+</div>
+
+<script type="module">
+/* ================= せってい ================= */
+const MP_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
+const MODEL = "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task";
+const LIVES = 3;
+const INK = "#1b1b1b", WHITE = "#ffffff", RED = "#e8392b", GREEN = "#22a45a";
+const WALL_COLORS = [["#1f6fe0", "#1957b5"], ["#e8392b", "#bf2b1f"], ["#ffc81e", "#d9a60c"], ["#22a45a", "#1a8549"]];
+const KP = [0, 11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28]; // はんていに つかう からだの点
+
+/* ================= きほん ================= */
+const $ = (id) => document.getElementById(id);
+const video = $("video"), cv = $("stage"), ctx = cv.getContext("2d");
+let W = 0, H = 0;
+function resize() {
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  W = innerWidth; H = innerHeight;
+  cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+addEventListener("resize", resize); resize();
+
+let cov = { s: 1, x: 0, y: 0, w: 0, h: 0 };
+function updateCover() {
+  const vw = video.videoWidth || 1280, vh = video.videoHeight || 720;
+  const s = Math.max(W / vw, H / vh);
+  cov = { s, w: vw * s, h: vh * s, x: (W - vw * s) / 2, y: (H - vh * s) / 2 };
+}
+const toScreen = (p) => ({ x: cov.x + (1 - p.x) * cov.w, y: cov.y + p.y * cov.h, v: p.visibility ?? 1 });
+function drawVideo() {
+  if (video.readyState >= 2) {
+    ctx.save(); ctx.translate(W, 0); ctx.scale(-1, 1);
+    ctx.drawImage(video, cov.x, cov.y, cov.w, cov.h);
+    ctx.restore();
+  } else { ctx.fillStyle = INK; ctx.fillRect(0, 0, W, H); }
+}
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const rand = (a, b) => a + Math.random() * (b - a);
+
+/* ================= こうかおん ================= */
+let AC = null;
+function audioOn() {
+  try { if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)(); if (AC.state === "suspended") AC.resume(); } catch (e) {}
+}
+function tone(f, at, dur, type = "sine", vol = 0.2, f2 = 0) {
+  if (!AC) return;
+  const t = AC.currentTime + at, o = AC.createOscillator(), g = AC.createGain();
+  o.type = type; o.frequency.setValueAtTime(f, t);
+  if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + dur);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(vol, t + 0.012);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g); g.connect(AC.destination); o.start(t); o.stop(t + dur + 0.05);
+}
+function noise(at, dur, vol = 0.2, freq = 1000, q = 1) {
+  if (!AC) return;
+  const t = AC.currentTime + at, len = Math.max(1, Math.floor(AC.sampleRate * dur));
+  const buf = AC.createBuffer(1, len, AC.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  const s = AC.createBufferSource(); s.buffer = buf;
+  const f = AC.createBiquadFilter(); f.type = "bandpass"; f.frequency.value = freq; f.Q.value = q;
+  const g = AC.createGain(); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  s.connect(f); f.connect(g); g.connect(AC.destination); s.start(t); s.stop(t + dur + 0.02);
+}
+const SE = {
+  count() { tone(660, 0, 0.14, "square", 0.1); },
+  go() { tone(990, 0, 0.35, "square", 0.12); },
+  tick(p) { tone(300 + p * 500, 0, 0.06, "triangle", 0.12); },
+  pass() { noise(0, 0.35, 0.25, 900, 0.8); tone(784, 0.05, 0.12, "triangle", 0.2); tone(1175, 0.15, 0.25, "triangle", 0.2); },
+  hit() { tone(140, 0, 0.35, "square", 0.22, 60); noise(0, 0.25, 0.35, 300, 0.7); },
+  end() { [523, 659, 784, 1047].forEach((f, i) => tone(f, i * 0.12, 0.3, "triangle", 0.18)); },
+};
+
+/* ================= UI ================= */
+function showBig(text, red = false) {
+  const b = $("big"); b.textContent = text; b.classList.toggle("red", red);
+  b.classList.remove("show"); void b.offsetWidth; b.classList.add("show");
+}
+let tipNow = null;
+function setTip(text) {
+  if (text === tipNow) return; tipNow = text;
+  const t = $("tip"); if (text) { t.textContent = text; t.classList.remove("hidden"); } else t.classList.add("hidden");
+}
+const HEART = (on) => `<svg viewBox="0 0 28 28"><path d="M14 24 C4 17 2 12 2 9 A6 6 0 0 1 14 7 A6 6 0 0 1 26 9 C26 12 24 17 14 24 Z" fill="${on ? RED : "#dddddd"}" stroke="#1b1b1b" stroke-width="2.5" stroke-linejoin="round"/></svg>`;
+function drawLives() { let s = ""; for (let i = 0; i < LIVES; i++) s += HEART(i < lives); $("lifePill").innerHTML = s; }
+function bump(id) { const e = $(id); e.classList.remove("bump"); void e.offsetWidth; e.classList.add("bump"); }
+
+/* ================= カメラ と モデル ================= */
+let detector = null;
+async function init() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+    video.srcObject = stream; await video.play();
+  } catch (e) { $("note").textContent = "カメラが つかえません。きょかを してね"; return; }
+  try {
+    const { PoseLandmarker, FilesetResolver } = await import(MP_URL + "/vision_bundle.mjs");
+    const fs = await FilesetResolver.forVisionTasks(MP_URL + "/wasm");
+    const make = (delegate) => PoseLandmarker.createFromOptions(fs, {
+      baseOptions: { modelAssetPath: MODEL, delegate }, runningMode: "VIDEO", numPoses: 1,
+    });
+    try { detector = await make("GPU"); } catch (e) { detector = await make("CPU"); }
+  } catch (e) { $("note").textContent = "よみこみに しっぱい。インターネットを たしかめてね"; return; }
+  $("startBtn").disabled = false;
+  $("note").textContent = "からだ ぜんぶが うつるように はなれてね";
+}
+
+let lastVT = -1, lastTS = 0, pose = null;
+function detect() {
+  if (!detector || video.readyState < 2 || video.currentTime === lastVT) return;
+  lastVT = video.currentTime;
+  let ts = performance.now(); if (ts <= lastTS) ts = lastTS + 1; lastTS = ts;
+  try {
+    const r = detector.detectForVideo(video, ts);
+    const lm = r.landmarks && r.landmarks[0];
+    pose = lm ? lm.map(toScreen) : null;
+  } catch (e) {}
+}
+function bodyInfo() {
+  if (!pose) return null;
+  const a = pose[11], b = pose[12];
+  if (a.v < 0.5 || b.v < 0.5) return null;
+  return { cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2, u: Math.hypot(a.x - b.x, a.y - b.y) };
+}
+
+/* ================= 壁の あなの かたち =================
+   1 = かたはば。 げんてん = まっすぐ立ったときの かたの まんなか。
+   かくど: 0=みぎ 90=した -90=うえ 180=ひだり（がめんで 見た むき） */
+const DEG = Math.PI / 180;
+const dir = (a) => ({ x: Math.cos(a * DEG), y: Math.sin(a * DEG) });
+const add = (p, a, l) => { const d = dir(a); return { x: p.x + d.x * l, y: p.y + d.y * l }; };
+function fig(o) {
+  const { la = [105, 98], ra = [75, 82], ll = [96, 92], rl = [84, 88], lean = 0, drop = 0, legK = 1 } = o;
+  const hipC = { x: 0, y: 1.3 + drop };
+  const td = dir(-90 + lean);
+  const sC = { x: hipC.x + td.x * 1.3, y: hipC.y + td.y * 1.3 };
+  const pp = { x: -td.y, y: td.x };
+  const sL = { x: sC.x - pp.x * 0.5, y: sC.y - pp.y * 0.5 }, sR = { x: sC.x + pp.x * 0.5, y: sC.y + pp.y * 0.5 };
+  const head = { x: sC.x + td.x * 0.68, y: sC.y + td.y * 0.68 };
+  const hL = { x: hipC.x - 0.36, y: hipC.y }, hR = { x: hipC.x + 0.36, y: hipC.y };
+  const eL = add(sL, la[0], 0.78), wL = add(eL, la[1], 0.72);
+  const eR = add(sR, ra[0], 0.78), wR = add(eR, ra[1], 0.72);
+  const kL = add(hL, ll[0], 1.1 * legK), aL = add(kL, ll[1], 1.1 * legK);
+  const kR = add(hR, rl[0], 1.1 * legK), aR = add(kR, rl[1], 1.1 * legK);
+  return { head, sC, sL, sR, hL, hR, eL, wL, eR, wR, kL, aL, kR, aR };
+}
+const flipA = (arr) => arr && arr.map((a) => 180 - a);
+const mirror = (o) => ({ la: flipA(o.ra), ra: flipA(o.la), ll: flipA(o.rl), rl: flipA(o.ll), lean: -(o.lean || 0), drop: o.drop, legK: o.legK });
+
+const RAW = [
+  { la: [-115, -105], ra: [-65, -75] },                 // バンザイ
+  { la: [180, 180], ra: [0, 0] },                       // りょうて よこ
+  { la: [-110, -100] },                                 // かたて あげ
+  { la: [180, -90], ra: [0, -90] },                     // ガッツ
+  { drop: 0.95, legK: 0.62, la: [125, 95], ra: [55, 85], ll: [130, 70], rl: [50, 110] }, // しゃがむ
+  { lean: -28, la: [152, 152], ra: [-28, -28] },        // ななめ
+  { la: [180, 180], ra: [0, 0], rl: [30, 95] },         // かたあし
+  { la: [-150, -150], ra: [60, 80] },                   // ななめ うで
+];
+const POSES = [];
+RAW.forEach((o, i) => { POSES.push(fig(o)); if (i !== 0 && i !== 1 && i !== 3 && i !== 4) POSES.push(fig(mirror(o))); });
+
+/* ================= 壁を つくる ================= */
+const wc = document.createElement("canvas");
+const wctx = wc.getContext("2d", { willReadFrequently: true });
+function buildWall(f, ax, ay, u, colors) {
+  wc.width = Math.ceil(W); wc.height = Math.ceil(H);
+  const g = wctx;
+  g.globalCompositeOperation = "source-over";
+  g.fillStyle = colors[0]; g.fillRect(0, 0, wc.width, wc.height);
+  // レンガの すじ
+  g.strokeStyle = colors[1]; g.lineWidth = 3;
+  const bh = Math.max(36, u * 0.45), bw = bh * 2.2;
+  for (let y = 0, row = 0; y < wc.height; y += bh, row++) {
+    g.beginPath(); g.moveTo(0, y); g.lineTo(wc.width, y); g.stroke();
+    for (let x = (row % 2) * bw / 2; x < wc.width; x += bw) { g.beginPath(); g.moveTo(x, y); g.lineTo(x, y + bh); g.stroke(); }
+  }
+  g.lineWidth = 12; g.strokeStyle = INK; g.strokeRect(6, 6, wc.width - 12, wc.height - 12);
+
+  const q = {}; for (const k in f) q[k] = { x: ax + f[k].x * u, y: ay + f[k].y * u };
+  const shape = (extra) => {
+    g.lineCap = "round"; g.lineJoin = "round";
+    const limb = (a, b, w) => { g.lineWidth = w * u + extra; g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke(); };
+    const dot = (p, r) => { g.beginPath(); g.arc(p.x, p.y, r * u + extra / 2, 0, Math.PI * 2); g.fill(); };
+    g.lineWidth = 0.7 * u + extra;
+    g.beginPath(); g.moveTo(q.sL.x, q.sL.y); g.lineTo(q.sR.x, q.sR.y); g.lineTo(q.hR.x, q.hR.y); g.lineTo(q.hL.x, q.hL.y); g.closePath();
+    g.fill(); g.stroke();
+    limb(q.sC, q.head, 0.55); dot(q.head, 0.64);
+    limb(q.sL, q.eL, 0.8); limb(q.eL, q.wL, 0.8); dot(q.wL, 0.5);
+    limb(q.sR, q.eR, 0.8); limb(q.eR, q.wR, 0.8); dot(q.wR, 0.5);
+    limb(q.hL, q.kL, 0.9); limb(q.kL, q.aL, 0.85); dot(q.aL, 0.5);
+    limb(q.hR, q.kR, 0.9); limb(q.kR, q.aR, 0.85); dot(q.aR, 0.5);
+  };
+  g.fillStyle = g.strokeStyle = INK; shape(16);
+  g.globalCompositeOperation = "destination-out";
+  g.fillStyle = g.strokeStyle = "#000"; shape(0);
+  g.globalCompositeOperation = "source-over";
+}
+function judge() {
+  const hits = []; let seen = 0;
+  if (pose) for (const i of KP) {
+    const p = pose[i];
+    if (!p || p.v < 0.6 || p.x < 0 || p.y < 0 || p.x >= wc.width || p.y >= wc.height) continue;
+    seen++;
+    if (wctx.getImageData(p.x | 0, p.y | 0, 1, 1).data[3] > 40) hits.push({ x: p.x, y: p.y });
+  }
+  return { ok: seen > 0 && hits.length === 0, hits, seen };
+}
+
+/* ================= ゲーム ================= */
+let state = "loading", stateT = 0;
+let score = 0, lives = LIVES, wall = null, nextAt = 0, recent = [], samples = [], calib = null, lastCount = -1, colorIdx = 0;
+let smooth = null;
+function setState(s) { state = s; stateT = performance.now(); }
+
+function startGame() {
+  audioOn();
+  score = 0; lives = LIVES; wall = null; recent = []; samples = []; calib = null; lastCount = -1;
+  $("scoreTxt").textContent = "0"; drawLives();
+  $("title").classList.add("hidden"); $("result").classList.add("hidden"); $("hud").classList.remove("hidden");
+  setState("count");
+}
+function endGame() {
+  setState("result"); setTip(null); SE.end();
+  $("resNum").textContent = score;
+  $("hud").classList.add("hidden");
+  setTimeout(() => $("result").classList.remove("hidden"), 500);
+}
+function spawnWall(now) {
+  let idx;
+  do { idx = Math.floor(Math.random() * POSES.length); } while (recent.includes(idx));
+  recent.push(idx); if (recent.length > 3) recent.shift();
+  const b = smooth || calib;
+  const u = clamp(b.u, calib.u * 0.8, calib.u * 1.25);
+  const ax = clamp(b.cx, W * 0.2, W * 0.8), ay = calib.cy;
+  colorIdx = (colorIdx + 1) % WALL_COLORS.length;
+  buildWall(POSES[idx], ax, ay, u, WALL_COLORS[colorIdx]);
+  wall = { ax, ay, t0: now, dur: Math.max(2400, 4600 - score * 120), phase: "come", step: 0, hits: [], hitT: 0, ok: false };
+}
+
+function update(now) {
+  const b = bodyInfo();
+  if (b) smooth = smooth ? { cx: smooth.cx * 0.7 + b.cx * 0.3, cy: smooth.cy * 0.7 + b.cy * 0.3, u: smooth.u * 0.7 + b.u * 0.3 } : b;
+
+  if (state === "count") {
+    if (!b) { stateT = now; lastCount = -1; samples = []; setTip("からだを カメラに うつしてね"); return; }
+    setTip(null);
+    samples.push(b);
+    const t = (now - stateT) / 1000, n = 3 - Math.floor(t);
+    if (n !== lastCount && n > 0) { lastCount = n; showBig(String(n)); SE.count(); }
+    if (t >= 3) {
+      const med = (k) => { const a = samples.map((s) => s[k]).sort((x, y) => x - y); return a[a.length >> 1]; };
+      calib = { cx: med("cx"), cy: med("cy"), u: med("u") };
+      showBig("スタート!"); SE.go();
+      setState("play"); nextAt = now + 900;
+    }
+    return;
+  }
+  if (state !== "play") return;
+
+  if (!wall) { if (now >= nextAt) spawnWall(now); return; }
+  const p = (now - wall.t0) / wall.dur;
+  if (wall.phase === "come") {
+    const st = Math.floor(p * 4);
+    if (st > wall.step && st < 4) { wall.step = st; SE.tick(st / 4); }
+    setTip(b ? null : "からだが うつって ないよ");
+    if (p >= 1) {
+      const r = judge();
+      wall.phase = "hit"; wall.hitT = now; wall.ok = r.ok; wall.hits = r.hits;
+      if (r.ok) { score++; $("scoreTxt").textContent = score; bump("scorePill"); showBig("OK!"); SE.pass(); }
+      else { lives--; drawLives(); bump("lifePill"); showBig("ドン!", true); SE.hit(); }
+    }
+  } else if (now - wall.hitT > 1000) {
+    wall = null;
+    if (lives <= 0) endGame(); else nextAt = now + 500;
+  }
+}
+
+function drawDots() {
+  if (!pose) return;
+  for (const i of KP) {
+    const p = pose[i]; if (p.v < 0.6) continue;
+    ctx.beginPath(); ctx.arc(p.x, p.y, 7, 0, Math.PI * 2);
+    ctx.fillStyle = WHITE; ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = INK; ctx.stroke();
+  }
+}
+function draw(now) {
+  if (!wall) return;
+  let s, alpha, shake = 0;
+  if (wall.phase === "come") {
+    const p = clamp((now - wall.t0) / wall.dur, 0, 1);
+    s = 0.16 + 0.84 * p * p; alpha = 0.35 + 0.55 * Math.min(1, p * 1.4);
+  } else {
+    const k = (now - wall.hitT) / 1000;
+    if (wall.ok) { s = 1 + k * 1.2; alpha = Math.max(0, 0.9 - k * 1.6); }
+    else { s = 1; alpha = 0.9; shake = Math.max(0, 1 - k * 2.5) * 12 * Math.sin(k * 60); }
+  }
+  if (alpha > 0) {
+    ctx.save(); ctx.globalAlpha = alpha;
+    ctx.translate(wall.ax + shake, wall.ay); ctx.scale(s, s); ctx.translate(-wall.ax, -wall.ay);
+    ctx.drawImage(wc, 0, 0, wc.width, wc.height);
+    ctx.restore();
+  }
+  if (wall.phase === "come" && (now - wall.t0) / wall.dur > 0.4) drawDots();
+  if (wall.phase === "hit" && !wall.ok) {
+    for (const h of wall.hits) {
+      ctx.beginPath(); ctx.arc(h.x, h.y, 18, 0, Math.PI * 2);
+      ctx.fillStyle = RED; ctx.fill(); ctx.lineWidth = 4; ctx.strokeStyle = INK; ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(h.x - 7, h.y - 7); ctx.lineTo(h.x + 7, h.y + 7); ctx.moveTo(h.x + 7, h.y - 7); ctx.lineTo(h.x - 7, h.y + 7);
+      ctx.strokeStyle = WHITE; ctx.lineWidth = 4; ctx.lineCap = "round"; ctx.stroke();
+    }
+  }
+}
+
+function loop(now) {
+  requestAnimationFrame(loop);
+  updateCover(); drawVideo(); detect();
+  update(now); draw(now);
+}
+requestAnimationFrame(loop);
+
+$("startBtn").addEventListener("click", startGame);
+$("againBtn").addEventListener("click", startGame);
+init();
+</script>
+</body>
+</html>

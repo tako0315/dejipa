@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>ふうせんパンパン!</title>
+<style>
+:root {
+  --bg: #1d2228;
+  --dark: #181c21;
+  --ink: #e8e6e1;
+  --muted: #9aa1a9;
+  --accent: #8fb0bd;
+  --easy: #7fae95;
+  --normal: #c9a468;
+  --hard: #c98890;
+  --gold: #e0c88c;
+  --line: rgba(255, 255, 255, .1);
+  --glass: rgba(24, 28, 33, .72);
+  --panel: rgba(32, 37, 44, .94);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 100%; height: 100%; overflow: hidden; }
+body {
+  font-family: "Hiragino Maru Gothic ProN", "BIZ UDPGothic", "Yu Gothic UI", "Meiryo", sans-serif;
+  font-weight: 700;
+  color: var(--ink);
+  background: var(--dark);
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+}
+#stage { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+
+.screen {
+  position: fixed; inset: 0;
+  display: none;
+  flex-direction: column; align-items: center; justify-content: center;
+  padding: 16px; text-align: center;
+}
+.screen.show { display: flex; }
+
+/* パネル(タイトル・けっか) */
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: clamp(20px, 4vmin, 36px);
+  max-width: 540px; width: 100%;
+  max-height: 100%; overflow-y: auto;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .25);
+  scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, .2) transparent;
+}
+.screen.show .panel { animation: fadeIn .3s ease-out both; }
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+h1 {
+  font-size: clamp(28px, 7vmin, 46px);
+  line-height: 1.25;
+  letter-spacing: .04em;
+  color: var(--ink);
+}
+.sub { font-size: clamp(14px, 2.8vmin, 17px); color: var(--muted); margin: 10px 0 4px; }
+.how {
+  text-align: left; font-size: clamp(13px, 2.6vmin, 16px); line-height: 1.7; font-weight: 600;
+  margin: 16px 0;
+  list-style: none;
+  display: grid; gap: 8px;
+}
+.how li {
+  background: rgba(255, 255, 255, .04);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 8px 12px;
+}
+.how b { color: var(--gold); }
+
+.btns { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; margin-top: 12px; }
+button {
+  font: inherit; color: #1d2228; cursor: pointer;
+  border: 0; border-radius: 14px;
+  padding: 12px 10px; min-width: 120px; max-width: 220px; flex: 1 1 120px;
+  font-size: clamp(16px, 3.4vmin, 20px);
+  letter-spacing: .03em;
+  background: var(--accent);
+  transition: transform .1s, filter .1s;
+}
+button:hover { filter: brightness(1.07); }
+button:active { transform: scale(.97); }
+button:focus-visible, .link:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+button small { display: block; font-size: .6em; font-weight: 700; opacity: .8; margin-top: 2px; letter-spacing: 0; }
+.b-easy { background: var(--easy); }
+.b-normal { background: var(--normal); }
+.b-hard { background: var(--hard); }
+.b-plain {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, .25);
+  color: var(--ink);
+}
+.note { font-size: 12px; font-weight: 500; color: var(--muted); margin-top: 14px; }
+.link { display: inline-block; margin-top: 16px; color: var(--accent); font-size: 14px; text-decoration: none; }
+.link:hover { text-decoration: underline; }
+
+.bigmsg {
+  font-size: clamp(20px, 5vmin, 34px); color: #fff;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, .6);
+  line-height: 1.5;
+}
+.spinner {
+  width: 48px; height: 48px; margin: 24px auto;
+  border: 4px solid rgba(255, 255, 255, .15);
+  border-top-color: var(--ink);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+#ready { justify-content: flex-end; padding-bottom: 8vh; pointer-events: none; }
+#readyBar {
+  width: min(60vw, 340px); height: 8px; border-radius: 8px;
+  background: rgba(255, 255, 255, .25);
+  margin-top: 14px; overflow: hidden;
+}
+#readyFill { height: 100%; width: 0; border-radius: 8px; background: var(--ink); }
+
+/* HUD */
+#hud { pointer-events: none; display: none; }
+#hud.show { display: block; }
+.chip {
+  position: fixed; top: 12px;
+  background: var(--glass); color: rgba(255, 255, 255, .75);
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 6px 16px; font-size: clamp(11px, 2.2vmin, 14px); line-height: 1.25;
+  letter-spacing: .06em;
+}
+.chip b {
+  display: block; font-size: 1.8em; letter-spacing: .02em;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+}
+#chipL, #scoreChip { left: 12px; text-align: left; }
+#chipR, #comboChip { right: 12px; text-align: right; }
+#big {
+  position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
+  max-width: 62vw;
+  background: var(--glass); color: #fff;
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 8px 24px; font-size: clamp(20px, 5vmin, 40px); line-height: 1.3;
+  text-align: center;
+}
+#big:empty { display: none; }
+#big .red { color: #f0a0a6; }
+#big .blue { color: #9cc6ea; }
+#big .green { color: #94d1ae; }
+#big .dim { color: rgba(255, 255, 255, .3); }
+#quit {
+  position: fixed; bottom: 12px; right: 12px; pointer-events: auto;
+  min-width: 0; flex: none; padding: 6px 14px; font-size: 13px;
+  color: var(--ink);
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  border: 1px solid var(--line); border-radius: 999px;
+}
+#judge, #count {
+  position: fixed; left: 0; right: 0; top: 50%; text-align: center;
+  font-size: clamp(40px, 11vmin, 96px); color: #fff;
+  letter-spacing: .04em;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, .5);
+  opacity: 0; transform: translateY(-50%);
+}
+#count { opacity: 1; }
+#judge.pop { animation: pop .7s ease-out forwards; }
+#judge.perfect { color: var(--gold); }
+#judge.good { color: #94d1ae; }
+#judge.miss { color: #b9bcc2; }
+@keyframes pop {
+  0% { opacity: 0; transform: translateY(-50%) scale(.85); }
+  20% { opacity: 1; transform: translateY(-50%) scale(1); }
+  80% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-62%) scale(1); }
+}
+
+/* result */
+#rank {
+  font-size: clamp(64px, 18vmin, 120px); line-height: 1.05;
+  color: var(--gold);
+}
+#rankMsg { font-size: clamp(16px, 3.6vmin, 22px); margin: 8px 0; }
+.stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin: 14px 0; font-size: clamp(12px, 2.4vmin, 14px); color: var(--muted); }
+.stats div {
+  background: rgba(255, 255, 255, .04);
+  border: 1px solid var(--line);
+  border-radius: 12px; padding: 8px;
+}
+.stats b { display: block; font-size: 1.6em; color: var(--ink); font-variant-numeric: tabular-nums; }
+#newRecord { color: var(--gold); font-size: clamp(14px, 3vmin, 18px); display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01s !important; transition: none !important; }
+}
+</style>
+</head>
+<body>
+<script>
+/* カメラゲーム きょうつうぶひん
+   つかいかた: CG.setup({ id, title, desc, how, modes, needs, start, update }) */
+(function () {
+  "use strict";
+  const MP = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
+  const MODELS = {
+    pose: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task",
+    hand: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
+  };
+  const $ = (id) => document.getElementById(id);
+
+  const CG = (window.CG = {
+    W: 0, H: 0, u: 1,          // がめんサイズ と たんい(みじかい辺の 1/100)
+    state: "title", mode: null,
+    pose: null,                // { nose, Ls, Rs, Le, Re, Lw, Rw, Lhand, Rhand, unit, cx, cy }  R = じぶんの右(がめんでも右)
+    hand: null,                // 手のランドマーク 21こ(がめん座標)
+    fresh: false,              // このフレームで あたらしく にんしきしたか
+    time: 0, score: 0, ctx: null,
+  });
+
+  let cfg, video, stage, ctx;
+  let landmarker = null, camReady = false, lastVT = -1;
+  let lay = { ox: 0, oy: 0, dw: 1, dh: 1 };
+  let readyT = 0, countT = 0, lastCount = "", lastTs = 0;
+  let particles = [];
+
+  /* ---------- がめんづくり ---------- */
+  CG.setup = function (c) {
+    cfg = c;
+    cfg.needs = cfg.needs || "pose";
+    const cls = ["b-easy", "b-normal", "b-hard"];
+    const modeBtns = cfg.modes.map((m, i) =>
+      `<button class="${cls[i % 3]}" data-mode="${m.key}">${m.label}<small>${m.sub || ""}</small></button>`).join("");
+    document.body.insertAdjacentHTML("beforeend", `
+<canvas id="stage"></canvas>
+<div id="title" class="screen show"><div class="panel">
+  <h1>${cfg.title}</h1>
+  <p class="sub">${cfg.desc}</p>
+  <ul class="how">${cfg.how.map((h) => `<li>${h}</li>`).join("")}</ul>
+  <p class="sub">むずかしさを えらんで スタート</p>
+  <div class="btns">${modeBtns}</div>
+  <p class="note">カメラの えいぞうは どこにも おくられません。まわりに 気をつけて あそんでね。</p>
+</div></div>
+<div id="loading" class="screen">
+  <div class="bigmsg" id="loadMsg">じゅんびちゅう…</div>
+  <div class="spinner" id="spinner"></div>
+  <div class="btns"><button class="b-plain" id="loadBack" style="display:none">もどる</button></div>
+</div>
+<div id="ready" class="screen">
+  <div class="bigmsg" id="readyMsg"></div>
+  <div id="readyBar"><div id="readyFill"></div></div>
+</div>
+<div id="hud">
+  <div class="chip" id="chipL">スコア<b id="score">0</b></div>
+  <div class="chip" id="chipR"><span id="infoLabel">のこり</span><b id="info">-</b></div>
+  <div id="big"></div>
+  <div id="count"></div>
+  <div id="judge"></div>
+  <button id="quit">✕ やめる</button>
+</div>
+<div id="result" class="screen"><div class="panel">
+  <div id="rank">S</div>
+  <div id="rankMsg"></div>
+  <div id="newRecord">🎉 しんきろく!</div>
+  <div class="stats" id="stats"></div>
+  <div class="btns">
+    <button class="b-normal" id="retry">もういちど</button>
+    <button class="b-plain" id="toTitle">タイトルへ</button>
+  </div>
+</div></div>`);
+    video = document.createElement("video");
+    video.playsInline = true; video.muted = true;
+    stage = $("stage");
+    ctx = CG.ctx = stage.getContext("2d");
+    addEventListener("resize", resize);
+    resize();
+
+    document.querySelectorAll("[data-mode]").forEach((b) => b.addEventListener("click", () => begin(b.dataset.mode)));
+    $("retry").addEventListener("click", () => begin(CG.mode));
+    $("toTitle").addEventListener("click", () => show("title"));
+    $("loadBack").addEventListener("click", () => show("title"));
+    $("quit").addEventListener("click", () => { stopAll(); show("title"); });
+    requestAnimationFrame(frame);
+  };
+
+  function show(name) {
+    CG.state = name;
+    for (const id of ["title", "loading", "ready", "result"]) $(id).classList.toggle("show", id === name);
+    $("hud").classList.toggle("show", name === "play" || name === "count");
+  }
+  function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    stage.width = CG.W = Math.round(innerWidth * dpr);
+    stage.height = CG.H = Math.round(innerHeight * dpr);
+    CG.u = Math.min(CG.W, CG.H) / 100;
+  }
+
+  /* ---------- カメラ と にんしき ---------- */
+  async function initCamera() {
+    if (camReady) return;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error("nocam");
+    video.srcObject = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "user", width: { ideal: 960 }, height: { ideal: 540 } }, audio: false,
+    });
+    await video.play();
+    camReady = true;
+  }
+  async function initModel() {
+    if (landmarker) return;
+    const vision = await import(`${MP}/vision_bundle.mjs`);
+    const fileset = await vision.FilesetResolver.forVisionTasks(`${MP}/wasm`);
+    const make = (delegate) => {
+      const base = { baseOptions: { modelAssetPath: MODELS[cfg.needs], delegate }, runningMode: "VIDEO" };
+      return cfg.needs === "hand"
+        ? vision.HandLandmarker.createFromOptions(fileset, { ...base, numHands: 1 })
+        : vision.PoseLandmarker.createFromOptions(fileset, { ...base, numPoses: 1 });
+    };
+    try { landmarker = await make("GPU"); } catch (e) { landmarker = await make("CPU"); }
+  }
+  const toScreen = (l) => ({ x: CG.W - (lay.ox + l.x * lay.dw), y: lay.oy + l.y * lay.dh });
+
+  function detect() {
+    let lm = null;
+    try {
+      const res = landmarker.detectForVideo(video, performance.now());
+      lm = res.landmarks && res.landmarks[0] ? res.landmarks[0] : null;
+    } catch (e) { lm = null; }
+    CG.fresh = true;
+    if (cfg.needs === "hand") { CG.hand = lm ? lm.map(toScreen) : null; return; }
+    CG.pose = null;
+    if (!lm) return;
+    const vis = (i) => (lm[i].visibility == null ? 1 : lm[i].visibility) > 0.5;
+    if (!vis(11) || !vis(12)) return;
+    const P = (i) => toScreen(lm[i]);
+    const p = { nose: P(0), Ls: P(11), Rs: P(12), Le: P(13), Re: P(14), Lw: P(15), Rw: P(16) };
+    p.unit = Math.hypot(p.Ls.x - p.Rs.x, p.Ls.y - p.Rs.y);
+    if (p.unit < CG.u * 3) return;
+    p.cx = (p.Ls.x + p.Rs.x) / 2; p.cy = (p.Ls.y + p.Rs.y) / 2;
+    const palm = (e, w) => ({ x: w.x + (w.x - e.x) * 0.3, y: w.y + (w.y - e.y) * 0.3 });
+    p.Lhand = palm(p.Le, p.Lw); p.Rhand = palm(p.Re, p.Rw);
+    CG.pose = p;
+  }
+
+  /* ---------- おと ---------- */
+  let actx = null, master = null, noiseBuf = null, bgmTimer = null;
+  function initAudio() {
+    if (!actx) {
+      actx = new (window.AudioContext || window.webkitAudioContext)();
+      master = actx.createGain(); master.gain.value = 0.6; master.connect(actx.destination);
+      noiseBuf = actx.createBuffer(1, actx.sampleRate * 0.5, actx.sampleRate);
+      const d = noiseBuf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    }
+    if (actx.state === "suspended") actx.resume();
+  }
+  function tone(freq, t, dur, type, vol, slideTo) {
+    if (!actx) return;
+    t = t == null ? actx.currentTime : t;
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = type || "sine";
+    o.frequency.setValueAtTime(freq, t);
+    if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t + dur);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol || 0.2, t + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(master);
+    o.start(t); o.stop(t + dur + 0.02);
+  }
+  function noise(t, dur, vol, filterType, freq) {
+    if (!actx) return;
+    t = t == null ? actx.currentTime : t;
+    const s = actx.createBufferSource(), f = actx.createBiquadFilter(), g = actx.createGain();
+    s.buffer = noiseBuf; f.type = filterType; f.frequency.value = freq;
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    s.connect(f); f.connect(g); g.connect(master);
+    s.start(t); s.stop(t + dur + 0.02);
+  }
+  CG.tone = tone; CG.noise = noise;
+  CG.sfx = function (kind) {
+    if (!actx) return;
+    const t = actx.currentTime;
+    if (kind === "perfect") { tone(1318.5, t, 0.12, "sine", 0.2); tone(1568, t + 0.08, 0.12, "sine", 0.2); tone(2093, t + 0.16, 0.25, "sine", 0.2); }
+    else if (kind === "good" || kind === "coin") { tone(988, t, 0.08, "sine", 0.18); tone(1318.5, t + 0.07, 0.2, "sine", 0.18); }
+    else if (kind === "miss") { tone(200, t, 0.25, "sawtooth", 0.1, 110); }
+    else if (kind === "pop") { noise(t, 0.07, 0.4, "bandpass", 1400); tone(500, t, 0.09, "square", 0.08, 1300); }
+    else if (kind === "boom") { tone(130, t, 0.4, "sawtooth", 0.25, 40); noise(t, 0.35, 0.4, "lowpass", 900); }
+    else if (kind === "tick") { tone(660, t, 0.07, "square", 0.07); }
+    else if (kind === "go") { tone(1320, t, 0.3, "square", 0.08); }
+    else if (kind === "fanfare") { [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => tone(f, t + i * 0.13, 0.3, "triangle", 0.2)); }
+  };
+  const CHORDS = [[261.63, 329.63, 392.0], [220.0, 261.63, 329.63], [174.61, 220.0, 261.63], [196.0, 246.94, 293.66]];
+  const ARP = [0, 1, 2, 1, 0, 2, 1, 2];
+  CG.bgm = function (bpm) {
+    CG.bgmStop();
+    if (!actx) return;
+    const beat = 60 / bpm, t0 = actx.currentTime + 0.1;
+    let b = 0;
+    bgmTimer = setInterval(() => {
+      while (t0 + b * beat < actx.currentTime + 0.25) {
+        const t = t0 + b * beat, inBar = b % 4, chord = CHORDS[Math.floor(b / 4) % 4];
+        if (inBar === 0 || inBar === 2) { tone(150, t, 0.16, "sine", 0.35, 45); tone(chord[0] / 2, t, beat * 0.9, "triangle", 0.14); }
+        else noise(t, 0.09, 0.1, "bandpass", 1800);
+        noise(t + beat / 2, 0.04, 0.04, "highpass", 7000);
+        tone(chord[ARP[inBar * 2]] * 2, t, beat * 0.45, "triangle", 0.06);
+        tone(chord[ARP[inBar * 2 + 1]] * 2, t + beat / 2, beat * 0.45, "triangle", 0.06);
+        b++;
+      }
+    }, 25);
+  };
+  CG.bgmStop = function () { if (bgmTimer) { clearInterval(bgmTimer); bgmTimer = null; } };
+  let jaVoice = null;
+  function pickVoice() {
+    try {
+      const vs = speechSynthesis.getVoices().filter((v) => /^ja/i.test(v.lang));
+      jaVoice = vs.find((v) => v.localService) || vs[0] || null;
+    } catch (e) {}
+  }
+  if (window.speechSynthesis) { pickVoice(); speechSynthesis.onvoiceschanged = pickVoice; }
+  /* よみあげ。ev = { onstart, onend } で はじまり・おわりを うけとれる。つかえないときは false */
+  CG.say = function (text, rate, ev) {
+    try {
+      if (!window.speechSynthesis) return false;
+      speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = "ja-JP"; if (jaVoice) u.voice = jaVoice;
+      u.rate = rate || 1.1; u.pitch = 1.2;
+      if (ev) {
+        u.onstart = ev.onstart || null; u.onend = ev.onend || null; u.onerror = ev.onend || null;
+        u.onboundary = ev.onboundary || null;
+        if (ev.volume != null) u.volume = ev.volume;
+      }
+      speechSynthesis.speak(u);
+      return true;
+    } catch (e) { return false; }
+  };
+  function stopAll() {
+    CG.bgmStop();
+    try { if (window.speechSynthesis) speechSynthesis.cancel(); } catch (e) {}
+  }
+
+  /* ---------- ながれ ---------- */
+  async function begin(mode) {
+    CG.mode = mode;
+    initAudio();
+    show("loading");
+    $("spinner").style.display = "";
+    $("loadBack").style.display = "none";
+    $("loadMsg").innerHTML = "カメラを じゅんびちゅう…<br>「きょか」を おしてね";
+    try { await initCamera(); }
+    catch (e) { return loadError("カメラが つかえませんでした。<br>カメラの「きょか」を たしかめてね"); }
+    $("loadMsg").innerHTML = "うごきを 見るじゅんびを しているよ…";
+    try { await initModel(); }
+    catch (e) { console.error(e); return loadError("よみこみに しっぱいしました。<br>インターネットに つながっているか たしかめてね"); }
+    if (CG.state !== "loading") return;
+    readyT = 0;
+    show("ready");
+  }
+  function loadError(html) {
+    $("loadMsg").innerHTML = html;
+    $("spinner").style.display = "none";
+    $("loadBack").style.display = "";
+  }
+  const isReady = () => (cfg.ready ? cfg.ready() : cfg.needs === "hand" ? !!CG.hand : !!CG.pose);
+  const readyText = () => cfg.readyMsg || (cfg.needs === "hand"
+    ? "手を カメラに 見せてね"
+    : "カメラから すこし はなれて<br>からだを うつしてね");
+
+  function startPlay() {
+    CG.time = 0; particles = [];
+    CG.setScore(0); CG.big(""); CG.setInfo("のこり", "-");
+    $("count").textContent = ""; $("judge").className = "";
+    show("play");
+    cfg.start(CG.mode);
+  }
+
+  CG.finish = function (r) {
+    if (CG.state !== "play") return;
+    stopAll();
+    const rate = r.rate || 0;
+    const [rank, msg] =
+      rate >= 0.9 ? ["S", "すごすぎる! たつじんだ!"] :
+      rate >= 0.7 ? ["A", "とっても じょうず!"] :
+      rate >= 0.45 ? ["B", "いいかんじ! そのちょうし!"] :
+                    ["C", "つぎは もっと できるよ!"];
+    const key = "camGameHi_" + cfg.id + "_" + CG.mode;
+    let hi = 0;
+    try { hi = Number(localStorage.getItem(key)) || 0; } catch (e) {}
+    const isNew = CG.score > hi;
+    if (isNew) { hi = CG.score; try { localStorage.setItem(key, String(hi)); } catch (e) {} }
+    $("rank").textContent = rank;
+    $("rankMsg").textContent = r.msg || msg;
+    $("newRecord").style.display = isNew && CG.score > 0 ? "block" : "none";
+    const stats = [["スコア", CG.score], ["さいこうきろく", hi]].concat(r.stats || []);
+    $("stats").innerHTML = stats.map(([l, v]) => `<div>${l}<b>${v}</b></div>`).join("");
+    show("result");
+    CG.sfx("fanfare");
+  };
+
+  /* ---------- HUD ---------- */
+  CG.setScore = (n) => { CG.score = Math.max(0, Math.round(n)); $("score").textContent = CG.score; };
+  CG.addScore = (d) => CG.setScore(CG.score + d);
+  let infoL = "", infoV = "";
+  CG.setInfo = (label, v) => {
+    if (label !== infoL) { infoL = label; $("infoLabel").textContent = label; }
+    if (String(v) !== infoV) { infoV = String(v); $("info").textContent = infoV; }
+  };
+  let bigHtml = "";
+  CG.big = (html) => { if (html !== bigHtml) { bigHtml = html; $("big").innerHTML = html; } };
+  CG.pop = (text, cls) => {
+    const j = $("judge");
+    j.textContent = text; j.className = "";
+    void j.offsetWidth;
+    j.className = "pop " + (cls || "perfect");
+  };
+
+  /* ---------- えがく どうぐ ---------- */
+  CG.emoji = function (ch, x, y, size, rot) {
+    ctx.save();
+    ctx.translate(x, y);
+    if (rot) ctx.rotate(rot);
+    ctx.font = `${size}px "Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif`;
+    ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = "#000";
+    ctx.fillText(ch, 0, 0);
+    ctx.restore();
+  };
+  CG.text = function (str, x, y, size, fill) {
+    ctx.save();
+    ctx.font = `700 ${size}px "Hiragino Maru Gothic ProN","BIZ UDPGothic","Yu Gothic UI","Meiryo",sans-serif`;
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.shadowColor = "rgba(0,0,0,.6)"; ctx.shadowBlur = size * 0.2;
+    ctx.fillStyle = fill || "#fff"; ctx.fillText(str, x, y);
+    ctx.restore();
+  };
+  /* 下の タイムバー (frac: 0〜1) */
+  CG.bar = function (frac, color) {
+    const { W, H, u } = CG, w = 50 * u, x = (W - w) / 2, y = H - 7 * u;
+    ctx.lineCap = "round"; ctx.lineWidth = 1.6 * u;
+    ctx.strokeStyle = "rgba(255,255,255,.3)";
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + w, y); ctx.stroke();
+    const f = Math.max(0, Math.min(1, frac));
+    if (f > 0) {
+      ctx.strokeStyle = color || "#fff";
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + w * f, y); ctx.stroke();
+    }
+  };
+  CG.skeleton = function (color) {
+    const p = CG.pose;
+    if (!p) return;
+    ctx.lineCap = "round"; ctx.lineJoin = "round";
+    ctx.lineWidth = Math.max(3, p.unit * 0.05);
+    ctx.strokeStyle = color || "rgba(255,255,255,.75)";
+    ctx.beginPath();
+    ctx.moveTo(p.Lw.x, p.Lw.y); ctx.lineTo(p.Le.x, p.Le.y); ctx.lineTo(p.Ls.x, p.Ls.y);
+    ctx.lineTo(p.Rs.x, p.Rs.y); ctx.lineTo(p.Re.x, p.Re.y); ctx.lineTo(p.Rw.x, p.Rw.y);
+    ctx.stroke();
+    ctx.fillStyle = "#fff";
+    for (const h of [p.Rhand, p.Lhand]) { ctx.beginPath(); ctx.arc(h.x, h.y, p.unit * 0.13, 0, 6.3); ctx.fill(); }
+  };
+  CG.burst = function (x, y, color, n) {
+    for (let i = 0; i < (n || 12); i++) {
+      const a = Math.random() * 6.283, s = (20 + Math.random() * 50) * CG.u;
+      particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: 0.5 + Math.random() * 0.3, color, size: (0.8 + Math.random() * 1.2) * CG.u });
+    }
+  };
+  function drawParticles(dt) {
+    for (const p of particles) {
+      p.life -= dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 120 * CG.u * dt;
+      ctx.globalAlpha = Math.max(0, Math.min(1, p.life * 2.5));
+      ctx.fillStyle = p.color;
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, 6.3); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    particles = particles.filter((p) => p.life > 0);
+  }
+  function drawVideo() {
+    const { W, H } = CG;
+    ctx.clearRect(0, 0, W, H);
+    if (!camReady || !video.videoWidth) return;
+    const vw = video.videoWidth, vh = video.videoHeight, s = Math.max(W / vw, H / vh);
+    lay = { dw: vw * s, dh: vh * s, ox: (W - vw * s) / 2, oy: (H - vh * s) / 2 };
+    ctx.save();
+    ctx.translate(W, 0); ctx.scale(-1, 1);
+    ctx.drawImage(video, lay.ox, lay.oy, lay.dw, lay.dh);
+    ctx.restore();
+    // タイトルなどでは くらくする。cfg.dim を きめた ゲームは あそんでいる あいだも カメラを うすくする
+    const menu = CG.state === "title" || CG.state === "result" || CG.state === "loading";
+    const dim = menu ? 0.6 : cfg.dim || 0;
+    if (dim > 0) { ctx.fillStyle = `rgba(24,28,33,${dim})`; ctx.fillRect(0, 0, W, H); }
+  }
+
+  /* ---------- メインループ ---------- */
+  function frame(ts) {
+    requestAnimationFrame(frame);
+    const dt = Math.min(0.05, (ts - lastTs) / 1000 || 0);
+    lastTs = ts;
+    const st = CG.state;
+    const active = st === "ready" || st === "count" || st === "play";
+    drawVideo();
+    CG.fresh = false;
+    if (active && camReady && landmarker && video.readyState >= 2 && video.currentTime !== lastVT) {
+      lastVT = video.currentTime;
+      detect();
+    }
+    if (st === "ready") {
+      const ok = isReady();
+      readyT = ok ? readyT + dt : Math.max(0, readyT - dt * 2);
+      $("readyFill").style.width = Math.min(100, readyT * 100) + "%";
+      $("readyMsg").innerHTML = ok ? "いいね! そのまま…" : readyText();
+      if (cfg.needs === "pose") CG.skeleton();
+      if (readyT >= 1) { countT = 3; lastCount = ""; show("count"); CG.big(""); $("judge").className = ""; }
+    } else if (st === "count") {
+      if (cfg.needs === "pose") CG.skeleton();
+      countT -= dt;
+      const c = countT > 0 ? String(Math.ceil(countT)) : "スタート!";
+      if (c !== lastCount) { lastCount = c; $("count").textContent = c; CG.sfx(countT > 0 ? "tick" : "go"); }
+      if (countT <= -0.6) startPlay();
+    } else if (st === "play") {
+      CG.time += dt;
+      cfg.update(dt);
+      drawParticles(dt);
+    }
+  }
+})();
+</script>
+<script>
+const TIME = 45;
+const MODES = {
+  easy:   { every: 0.9,  speed: 14, bomb: 0,    target: 380 },
+  normal: { every: 0.65, speed: 20, bomb: 0.12, target: 480 },
+  hard:   { every: 0.45, speed: 28, bomb: 0.2,  target: 600 },
+};
+const COLORS = ["#ff5fa2", "#35b8ff", "#3ddc84", "#ffd93b", "#8a5cff", "#ff8a3b"];
+let M, balloons, spawnT, popped, bombs;
+
+function spawn() {
+  const { W, H, u } = CG;
+  const r = Math.random();
+  const type = r < M.bomb ? "bomb" : r < M.bomb + 0.08 ? "gold" : "n";
+  balloons.push({
+    x: 10 * u + Math.random() * (W - 20 * u), y: H + 10 * u,
+    r: 6.5, vy: M.speed * (type === "gold" ? 1.5 : 0.8 + Math.random() * 0.5),
+    ph: Math.random() * 6, type, color: COLORS[Math.floor(Math.random() * COLORS.length)],
+  });
+}
+function hit(b) {
+  b.dead = true;
+  if (b.type === "bomb") {
+    bombs++; CG.addScore(-20); CG.sfx("boom"); CG.pop("ドカン!", "miss"); CG.burst(b.x, b.y, "#444", 20);
+  } else {
+    popped++;
+    CG.addScore(b.type === "gold" ? 30 : 10);
+    CG.sfx(b.type === "gold" ? "perfect" : "pop");
+    CG.burst(b.x, b.y, b.type === "gold" ? "#ffd93b" : b.color, b.type === "gold" ? 24 : 12);
+  }
+}
+function drawBalloon(b) {
+  const { ctx, u } = CG, R = b.r * u;
+  if (b.type === "bomb") return CG.emoji("💣", b.x, b.y, R * 2.2);
+  if (b.type === "gold") return CG.emoji("⭐", b.x, b.y, R * 2.4, Math.sin(CG.time * 6) * 0.3);
+  ctx.strokeStyle = "rgba(255,255,255,.8)"; ctx.lineWidth = 0.3 * u;
+  ctx.beginPath(); ctx.moveTo(b.x, b.y + R); ctx.quadraticCurveTo(b.x + 2 * u, b.y + R * 1.6, b.x, b.y + R * 2.2); ctx.stroke();
+  ctx.fillStyle = b.color;
+  ctx.beginPath(); ctx.ellipse(b.x, b.y, R * 0.85, R, 0, 0, 6.3); ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,.45)";
+  ctx.beginPath(); ctx.ellipse(b.x - R * 0.3, b.y - R * 0.4, R * 0.18, R * 0.3, 0.5, 0, 6.3); ctx.fill();
+}
+
+CG.setup({
+  id: "balloon",
+  title: "ふうせんパンパン!",
+  desc: "とんでくる ふうせんを 手で わろう!",
+  how: [
+    "🎈 ふうせんに <b>手</b> を あてると われるよ(10てん)",
+    "⭐ ほしは はやいけど <b>30てん</b>!",
+    "💣 ばくだんに さわると <b>−20てん</b>。よけてね",
+  ],
+  modes: [
+    { key: "easy", label: "やさしい", sub: "ゆっくり・ばくだんなし" },
+    { key: "normal", label: "ふつう", sub: "ばくだんあり" },
+    { key: "hard", label: "むずかしい", sub: "はやい・ばくだん おおめ" },
+  ],
+  start(mode) { M = MODES[mode]; balloons = []; spawnT = 0; popped = 0; bombs = 0; CG.bgm(124); },
+  update(dt) {
+    const { u } = CG, left = TIME - CG.time;
+    CG.setInfo("のこり", Math.max(0, Math.ceil(left)));
+    spawnT -= dt;
+    if (spawnT <= 0 && left > 1) { spawnT = M.every * (0.7 + Math.random() * 0.6); spawn(); }
+    const hands = CG.pose ? [CG.pose.Lhand, CG.pose.Rhand] : [];
+    for (const b of balloons) {
+      b.y -= b.vy * u * dt;
+      b.x += Math.sin(b.ph + CG.time * 2) * 3 * u * dt;
+      for (const h of hands) if (!b.dead && Math.hypot(h.x - b.x, h.y - b.y) < (b.r + 4) * u) hit(b);
+    }
+    balloons = balloons.filter((b) => !b.dead && b.y > -15 * u);
+    CG.skeleton();
+    balloons.forEach(drawBalloon);
+    if (left <= 0) CG.finish({ rate: CG.score / M.target, stats: [["わった かず", popped], ["ばくだん", bombs]] });
+  },
+});
+</script>
+</body>
+</html>

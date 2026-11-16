@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>バランス！頭上タワー</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@500;800&display=swap" rel="stylesheet">
+<style>
+:root { --ink:#1b1b1b; --white:#ffffff; --red:#e8392b; --blue:#1f6fe0; --yellow:#ffc81e; --green:#22a45a; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: var(--ink); }
+body {
+  font-family: "M PLUS Rounded 1c", "Hiragino Maru Gothic ProN", "BIZ UDPGothic", "Meiryo", sans-serif;
+  font-weight: 800; color: var(--ink); user-select: none; -webkit-user-select: none; touch-action: manipulation;
+}
+#stage { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+video { display: none; }
+.hidden { display: none !important; }
+
+.hud { position: fixed; top: 16px; left: 16px; right: 16px; display: flex; justify-content: space-between; pointer-events: none; }
+.pill {
+  background: var(--white); border: 3px solid var(--ink); border-radius: 999px;
+  padding: 6px 18px; font-size: 30px; line-height: 1.1; display: flex; align-items: center; gap: 8px; min-width: 90px; justify-content: center;
+}
+.pill svg { width: 28px; height: 28px; display: block; }
+.pill.bump { animation: bump .3s ease-out; }
+@keyframes bump { 40% { transform: scale(1.2); } }
+
+.tip {
+  position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+  background: var(--white); border: 3px solid var(--ink); border-radius: 999px;
+  padding: 8px 22px; font-size: 20px; white-space: nowrap; pointer-events: none;
+}
+.big {
+  position: fixed; left: 50%; top: 45%; transform: translate(-50%,-50%); opacity: 0;
+  font-size: min(24vw, 180px); color: var(--white); white-space: nowrap; pointer-events: none; line-height: 1;
+  text-shadow: 5px 0 var(--ink), -5px 0 var(--ink), 0 5px var(--ink), 0 -5px var(--ink),
+               4px 4px var(--ink), -4px 4px var(--ink), 4px -4px var(--ink), -4px -4px var(--ink), 0 10px var(--ink);
+}
+.big.red { color: var(--red); }
+.big.show { animation: pop .8s ease-out forwards; }
+@keyframes pop {
+  0% { transform: translate(-50%,-50%) scale(.3); opacity: 0; }
+  25% { transform: translate(-50%,-50%) scale(1.12); opacity: 1; }
+  40% { transform: translate(-50%,-50%) scale(1); }
+  80% { opacity: 1; }
+  100% { transform: translate(-50%,-50%) scale(1); opacity: 0; }
+}
+
+.screen { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.panel {
+  background: var(--white); border: 4px solid var(--ink); border-radius: 28px;
+  padding: 24px 28px 28px; text-align: center; width: 100%; max-width: 440px;
+}
+.panel h1 { font-size: 32px; line-height: 1.25; margin-bottom: 12px; }
+.panel h1 span { color: var(--red); }
+.rule { display: block; width: 100%; max-width: 280px; height: auto; margin: 0 auto 18px; }
+.note { margin-top: 14px; font-size: 15px; font-weight: 500; color: #555; }
+.btn {
+  font: inherit; font-size: 26px; color: var(--white); background: var(--red);
+  border: 4px solid var(--ink); border-radius: 999px; padding: 10px 34px 12px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 10px; box-shadow: 0 6px 0 var(--ink);
+}
+.btn svg { width: 26px; height: 26px; }
+.btn:active { transform: translateY(4px); box-shadow: 0 2px 0 var(--ink); }
+.btn:disabled { background: #b9b9b9; cursor: wait; }
+.res-num { font-size: 110px; line-height: 1; margin: 6px 0 2px; }
+.res-unit { font-size: 22px; margin-bottom: 6px; }
+.res-sub { font-size: 18px; font-weight: 500; margin-bottom: 22px; color: #444; }
+</style>
+</head>
+<body>
+<video id="video" playsinline muted></video>
+<canvas id="stage"></canvas>
+
+<div class="hud hidden" id="hud">
+  <div class="pill" id="scorePill">
+    <svg viewBox="0 0 28 28"><rect x="6" y="3" width="16" height="7" rx="2" fill="#ffc81e" stroke="#1b1b1b" stroke-width="2.5"/><rect x="4" y="10" width="20" height="7" rx="2" fill="#e8392b" stroke="#1b1b1b" stroke-width="2.5"/><rect x="6" y="17" width="16" height="8" rx="2" fill="#1f6fe0" stroke="#1b1b1b" stroke-width="2.5"/></svg>
+    <span id="scoreTxt">0</span>
+  </div>
+  <div class="pill" id="timePill">
+    <svg viewBox="0 0 28 28"><circle cx="14" cy="15" r="11" fill="#fff" stroke="#1b1b1b" stroke-width="3"/><path d="M14 9 V15 L18 18" fill="none" stroke="#1b1b1b" stroke-width="3" stroke-linecap="round"/></svg>
+    <span id="timeTxt">0</span>
+  </div>
+</div>
+<div class="tip hidden" id="tip"></div>
+<div class="big" id="big"></div>
+
+<div class="screen" id="title">
+  <div class="panel">
+    <h1>バランス！<br><span>頭上タワー</span></h1>
+    <svg class="rule" viewBox="0 0 280 180" aria-hidden="true">
+      <g stroke="#1b1b1b" stroke-width="4" stroke-linejoin="round">
+        <path d="M70 180 C70 140 210 140 210 180 Z" fill="#1f6fe0"/>
+        <circle cx="140" cy="118" r="34" fill="#ffd9b3"/>
+        <ellipse cx="140" cy="80" rx="44" ry="8" fill="#fff"/>
+        <rect x="112" y="48" width="56" height="26" rx="5" fill="#e8392b"/>
+        <rect x="120" y="22" width="40" height="26" rx="5" fill="#ffc81e"/>
+        <circle cx="140" cy="10" r="0" fill="none"/>
+      </g>
+      <circle cx="129" cy="116" r="3.5" fill="#1b1b1b"/><circle cx="151" cy="116" r="3.5" fill="#1b1b1b"/>
+      <path d="M131 130 Q140 136 149 130" fill="none" stroke="#1b1b1b" stroke-width="3" stroke-linecap="round"/>
+      <g fill="none" stroke="#1b1b1b" stroke-width="5" stroke-linecap="round">
+        <path d="M30 60 H70 M20 78 H62 M34 96 H66"/>
+        <path d="M60 52 L72 60 L60 68"/>
+      </g>
+      <g fill="none" stroke="#1b1b1b" stroke-width="5" stroke-linecap="round">
+        <path d="M222 70 Q238 60 250 72" /><path d="M222 50 Q238 40 250 52"/>
+      </g>
+    </svg>
+    <button class="btn" id="startBtn" disabled>
+      <svg viewBox="0 0 26 26"><path d="M7 4 L22 13 L7 22 Z" fill="#fff" stroke="#1b1b1b" stroke-width="2.5" stroke-linejoin="round"/></svg>
+      スタート
+    </button>
+    <p class="note" id="note">じゅんびちゅう…</p>
+  </div>
+</div>
+
+<div class="screen hidden" id="result">
+  <div class="panel">
+    <svg viewBox="0 0 28 28" width="56" height="56"><rect x="6" y="3" width="16" height="7" rx="2" fill="#ffc81e" stroke="#1b1b1b" stroke-width="2.5"/><rect x="4" y="10" width="20" height="7" rx="2" fill="#e8392b" stroke="#1b1b1b" stroke-width="2.5"/><rect x="6" y="17" width="16" height="8" rx="2" fill="#1f6fe0" stroke="#1b1b1b" stroke-width="2.5"/></svg>
+    <div class="res-num" id="resNum">0</div>
+    <div class="res-unit">こ つめた！</div>
+    <div class="res-sub" id="resSub"></div>
+    <button class="btn" id="againBtn">
+      <svg viewBox="0 0 26 26"><path d="M20 8 A9 9 0 1 0 22 15" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round"/><path d="M15 3 L22 8 L15 12 Z" fill="#fff"/></svg>
+      もういちど
+    </button>
+  </div>
+</div>
+
+<script type="module">
+/* ================= せってい ================= */
+const MP_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
+const MODEL = "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task";
+const DROP_EVERY = 3.0;     // あたらしい ものが ふってくる かんかく(びょう)
+const FALL_ANGLE = 0.6;     // これより かたむくと たおれる(ラジアン)
+const INK = "#1b1b1b", WHITE = "#ffffff", RED = "#e8392b", BLUE = "#1f6fe0", YELLOW = "#ffc81e", GREEN = "#22a45a";
+
+/* ================= きほん ================= */
+const $ = (id) => document.getElementById(id);
+const video = $("video"), cv = $("stage"), ctx = cv.getContext("2d");
+let W = 0, H = 0;
+function resize() {
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  W = innerWidth; H = innerHeight;
+  cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+addEventListener("resize", resize); resize();
+
+let cov = { s: 1, x: 0, y: 0, w: 0, h: 0 };
+function updateCover() {
+  const vw = video.videoWidth || 1280, vh = video.videoHeight || 720;
+  const s = Math.max(W / vw, H / vh);
+  cov = { s, w: vw * s, h: vh * s, x: (W - vw * s) / 2, y: (H - vh * s) / 2 };
+}
+const toScreen = (p) => ({ x: cov.x + (1 - p.x) * cov.w, y: cov.y + p.y * cov.h, v: p.visibility ?? 1 });
+function drawVideo() {
+  if (video.readyState >= 2) {
+    ctx.save(); ctx.translate(W, 0); ctx.scale(-1, 1);
+    ctx.drawImage(video, cov.x, cov.y, cov.w, cov.h);
+    ctx.restore();
+  } else { ctx.fillStyle = INK; ctx.fillRect(0, 0, W, H); }
+}
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const rand = (a, b) => a + Math.random() * (b - a);
+
+/* ================= こうかおん ================= */
+let AC = null;
+function audioOn() {
+  try { if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)(); if (AC.state === "suspended") AC.resume(); } catch (e) {}
+}
+function tone(f, at, dur, type = "sine", vol = 0.2, f2 = 0) {
+  if (!AC) return;
+  const t = AC.currentTime + at, o = AC.createOscillator(), g = AC.createGain();
+  o.type = type; o.frequency.setValueAtTime(f, t);
+  if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + dur);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(vol, t + 0.012);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g); g.connect(AC.destination); o.start(t); o.stop(t + dur + 0.05);
+}
+function noise(at, dur, vol = 0.2, freq = 1000, q = 1, f2 = 0) {
+  if (!AC) return;
+  const t = AC.currentTime + at, len = Math.max(1, Math.floor(AC.sampleRate * dur));
+  const buf = AC.createBuffer(1, len, AC.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  const s = AC.createBufferSource(); s.buffer = buf;
+  const f = AC.createBiquadFilter(); f.type = "bandpass"; f.frequency.setValueAtTime(freq, t); f.Q.value = q;
+  if (f2) f.frequency.exponentialRampToValueAtTime(f2, t + dur);
+  const g = AC.createGain();
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + dur * 0.3); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  s.connect(f); f.connect(g); g.connect(AC.destination); s.start(t); s.stop(t + dur + 0.02);
+}
+const SE = {
+  count() { tone(660, 0, 0.14, "square", 0.1); },
+  go() { tone(990, 0, 0.35, "square", 0.12); },
+  whistle() { tone(1400, 0, 0.5, "sine", 0.06, 1800); },
+  land(n) { const f = 330 + Math.min(n, 15) * 25; tone(f, 0, 0.12, "triangle", 0.22, f * 0.7); tone(f * 2, 0.02, 0.06, "square", 0.05); },
+  windWarn() { tone(880, 0, 0.1, "square", 0.08); tone(880, 0.18, 0.1, "square", 0.08); },
+  wind() { noise(0, 2.4, 0.22, 500, 0.7, 1200); },
+  crash() { for (let i = 0; i < 5; i++) tone(500 - i * 70, i * 0.08, 0.15, "square", 0.12); noise(0.1, 0.5, 0.3, 300, 0.6); },
+};
+
+/* ================= UI ================= */
+function showBig(text, red = false) {
+  const b = $("big"); b.textContent = text; b.classList.toggle("red", red);
+  b.classList.remove("show"); void b.offsetWidth; b.classList.add("show");
+}
+let tipNow = null;
+function setTip(text) {
+  if (text === tipNow) return; tipNow = text;
+  const t = $("tip"); if (text) { t.textContent = text; t.classList.remove("hidden"); } else t.classList.add("hidden");
+}
+function bump(id) { const e = $(id); e.classList.remove("bump"); void e.offsetWidth; e.classList.add("bump"); }
+
+/* ================= カメラ と モデル ================= */
+let detector = null;
+async function init() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+    video.srcObject = stream; await video.play();
+  } catch (e) { $("note").textContent = "カメラが つかえません。きょかを してね"; return; }
+  try {
+    const { PoseLandmarker, FilesetResolver } = await import(MP_URL + "/vision_bundle.mjs");
+    const fs = await FilesetResolver.forVisionTasks(MP_URL + "/wasm");
+    const make = (delegate) => PoseLandmarker.createFromOptions(fs, {
+      baseOptions: { modelAssetPath: MODEL, delegate }, runningMode: "VIDEO", numPoses: 1,
+    });
+    try { detector = await make("GPU"); } catch (e) { detector = await make("CPU"); }
+  } catch (e) { $("note").textContent = "よみこみに しっぱい。インターネットを たしかめてね"; return; }
+  $("startBtn").disabled = false;
+  $("note").textContent = "あたまの うえが あくように うつってね";
+}
+
+let lastVT = -1, lastTS = 0, pose = null;
+function detect() {
+  if (!detector || video.readyState < 2 || video.currentTime === lastVT) return false;
+  lastVT = video.currentTime;
+  let ts = performance.now(); if (ts <= lastTS) ts = lastTS + 1; lastTS = ts;
+  try {
+    const r = detector.detectForVideo(video, ts);
+    const lm = r.landmarks && r.landmarks[0];
+    pose = lm ? lm.map(toScreen) : null;
+  } catch (e) { return false; }
+  return true;
+}
+
+/* ================= あたまの いち ================= */
+function rawHead() {
+  if (!pose) return null;
+  let a = pose[7], b = pose[8], k = 1;
+  if (a.v < 0.5 || b.v < 0.5) { a = pose[2]; b = pose[5]; k = 2.1; if (a.v < 0.5 || b.v < 0.5) return null; }
+  const L = a.x < b.x ? a : b, Rt = a.x < b.x ? b : a;
+  const hw = Math.max(30, Math.hypot(Rt.x - L.x, Rt.y - L.y) * k);
+  const tilt = Math.atan2(Rt.y - L.y, Rt.x - L.x);
+  const cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2;
+  return { x: cx + Math.sin(tilt) * hw * 0.75, y: cy - Math.cos(tilt) * hw * 0.75, hw, tilt };
+}
+let head = null, headSeenT = 0, lastDetT = 0;
+function updateHead(now) {
+  const r = rawHead();
+  if (!r) return;
+  const dt = Math.max(0.016, Math.min(0.2, (now - lastDetT) / 1000)); lastDetT = now;
+  const lost = !head || now - headSeenT > 500;
+  headSeenT = now;
+  if (lost) { head = { ...r, vx: 0, ax: 0 }; return; }
+  const nx = head.x + (r.x - head.x) * 0.6;
+  const vx = (nx - head.x) / dt;
+  head.ax = head.ax * 0.6 + ((vx - head.vx) / dt) * 0.4;
+  head.vx = head.vx * 0.5 + vx * 0.5;
+  head.x = nx;
+  head.y += (r.y - head.y) * 0.6;
+  head.hw += (r.hw - head.hw) * 0.2;
+  head.tilt += (r.tilt - head.tilt) * 0.5;
+}
+
+/* ================= つむもの ================= */
+const BLOCK_COLORS = [RED, BLUE, YELLOW, GREEN];
+const KINDS = [
+  { id: "plate", w: 1.4, h: 0.28 },
+  { id: "block", w: 1.0, h: 0.5 },
+  { id: "cat",   w: 0.95, h: 0.78 },
+  { id: "bear",  w: 0.95, h: 0.78 },
+  { id: "frog",  w: 1.0, h: 0.62 },
+  { id: "block", w: 1.2, h: 0.42 },
+];
+function makeItem() {
+  const k = KINDS[Math.floor(Math.random() * KINDS.length)];
+  return { ...k, color: BLOCK_COLORS[Math.floor(Math.random() * 4)], ox: rand(-0.06, 0.06) };
+}
+function eyes(w, h, y, r) {
+  ctx.fillStyle = INK;
+  ctx.beginPath(); ctx.arc(-w * 0.16, y, r, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(w * 0.16, y, r, 0, Math.PI * 2); ctx.fill();
+}
+function drawItem(it, w, h) {
+  ctx.lineWidth = 3; ctx.strokeStyle = INK; ctx.lineJoin = "round";
+  if (it.id === "plate") {
+    ctx.beginPath(); ctx.ellipse(0, 0, w / 2, h / 2, 0, 0, Math.PI * 2); ctx.fillStyle = WHITE; ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(0, -h * 0.08, w * 0.3, h * 0.22, 0, 0, Math.PI * 2); ctx.stroke();
+  } else if (it.id === "block") {
+    ctx.beginPath(); ctx.roundRect(-w / 2, -h / 2, w, h, Math.min(w, h) * 0.18); ctx.fillStyle = it.color; ctx.fill(); ctx.stroke();
+    ctx.fillStyle = WHITE; ctx.beginPath(); ctx.arc(-w * 0.3, -h * 0.18, Math.min(w, h) * 0.08, 0, Math.PI * 2); ctx.fill();
+  } else if (it.id === "cat") {
+    const r = Math.min(w, h) * 0.5;
+    ctx.fillStyle = "#f0a94b";
+    ctx.beginPath(); ctx.moveTo(-r * 0.9, -r * 0.2); ctx.lineTo(-r * 0.75, -r * 1.05); ctx.lineTo(-r * 0.2, -r * 0.75); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(r * 0.9, -r * 0.2); ctx.lineTo(r * 0.75, -r * 1.05); ctx.lineTo(r * 0.2, -r * 0.75); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(0, r * 0.1, r, r * 0.85, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    eyes(w, h, 0, r * 0.1);
+    ctx.fillStyle = "#e86a8a"; ctx.beginPath(); ctx.arc(0, r * 0.25, r * 0.08, 0, Math.PI * 2); ctx.fill();
+  } else if (it.id === "bear") {
+    const r = Math.min(w, h) * 0.5;
+    ctx.fillStyle = "#9a6a43";
+    ctx.beginPath(); ctx.arc(-r * 0.7, -r * 0.6, r * 0.32, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.arc(r * 0.7, -r * 0.6, r * 0.32, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(0, r * 0.1, r, r * 0.85, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = "#e8cfae"; ctx.beginPath(); ctx.ellipse(0, r * 0.35, r * 0.35, r * 0.26, 0, 0, Math.PI * 2); ctx.fill();
+    eyes(w, h, 0, r * 0.1);
+    ctx.fillStyle = INK; ctx.beginPath(); ctx.arc(0, r * 0.27, r * 0.09, 0, Math.PI * 2); ctx.fill();
+  } else if (it.id === "frog") {
+    const r = Math.min(w, h) * 0.5;
+    ctx.fillStyle = GREEN;
+    ctx.beginPath(); ctx.arc(-w * 0.25, -h * 0.32, r * 0.42, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.arc(w * 0.25, -h * 0.32, r * 0.42, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(0, h * 0.08, w / 2, h * 0.42, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = WHITE;
+    ctx.beginPath(); ctx.arc(-w * 0.25, -h * 0.32, r * 0.25, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(w * 0.25, -h * 0.32, r * 0.25, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = INK;
+    ctx.beginPath(); ctx.arc(-w * 0.25, -h * 0.32, r * 0.12, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(w * 0.25, -h * 0.32, r * 0.12, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(0, h * 0.02, w * 0.22, 0.15 * Math.PI, 0.85 * Math.PI); ctx.lineWidth = 3; ctx.stroke();
+  }
+}
+
+/* ================= ゲーム ================= */
+let state = "loading", stateT = 0, lastCount = -1;
+let stack = [], theta = 0, omega = 0, playT = 0, dropT = 0, falling = null, wind = null, nextWind = 0;
+let streaks = [], debris = [], placed = [], lastSec = -1;
+function setState(s) { state = s; stateT = performance.now(); }
+
+function startGame() {
+  audioOn();
+  stack = [makeItem()]; stack[0].id = "plate"; stack[0].w = 1.4; stack[0].h = 0.28;
+  theta = 0; omega = 0; playT = 0; dropT = 0; falling = null; wind = null; nextWind = 8;
+  streaks = []; debris = []; placed = []; lastCount = -1; lastSec = -1;
+  $("scoreTxt").textContent = stack.length; $("timeTxt").textContent = "0";
+  $("title").classList.add("hidden"); $("result").classList.add("hidden"); $("hud").classList.remove("hidden");
+  setState("count");
+}
+function collapse() {
+  setState("crash"); SE.crash(); showBig("ガラガラ!", true); setTip(null);
+  const dirn = Math.sign(theta) || 1;
+  debris = placed.map((p, i) => ({ ...p, vx: dirn * rand(120, 320) + rand(-60, 60), vy: rand(-320, -80) - i * 10, va: dirn * rand(2, 6) }));
+  if (falling) falling = null;
+  wind = null;
+}
+function endGame() {
+  setState("result");
+  $("resNum").textContent = stack.length;
+  $("resSub").textContent = `${Math.floor(playT)} びょう キープ`;
+  $("hud").classList.add("hidden"); $("result").classList.remove("hidden");
+  [523, 659, 784, 1047].forEach((f, i) => tone(f, i * 0.12, 0.3, "triangle", 0.18));
+}
+
+let lastNow = performance.now();
+function update(now, fresh) {
+  const dt = Math.min(0.05, (now - lastNow) / 1000); lastNow = now;
+  if (fresh) updateHead(now);
+  const seen = head && now - headSeenT < 500;
+
+  for (const s of streaks) s.x += s.vx * dt;
+  streaks = streaks.filter((s) => s.x > -300 && s.x < W + 300);
+
+  if (state === "count") {
+    if (!seen) { stateT = now; lastCount = -1; setTip("かおを カメラに うつしてね"); return; }
+    setTip(null);
+    const t = (now - stateT) / 1000, n = 3 - Math.floor(t);
+    if (n !== lastCount && n > 0) { lastCount = n; showBig(String(n)); SE.count(); }
+    if (t >= 3) { showBig("スタート!"); SE.go(); setState("play"); }
+    return;
+  }
+  if (state === "crash") {
+    for (const d of debris) { d.vy += 1500 * dt; d.x += d.vx * dt; d.y += d.vy * dt; d.a += d.va * dt; }
+    if (now - stateT > 1700) endGame();
+    return;
+  }
+  if (state !== "play") return;
+
+  if (!seen) { setTip("かおが みえないよ"); return; }   // みえない間は とまる
+  setTip(null);
+  playT += dt;
+  const sec = Math.floor(playT);
+  if (sec !== lastSec) { lastSec = sec; $("timeTxt").textContent = sec; }
+
+  // --- あたらしい ものが ふってくる ---
+  dropT += dt;
+  if (!falling && dropT >= DROP_EVERY) { dropT = 0; falling = { it: makeItem(), x: head.x, y: -60, vy: 0 }; SE.whistle(); }
+
+  // --- かぜ ---
+  if (!wind && playT >= nextWind) { wind = { dir: Math.random() < 0.5 ? -1 : 1, t: 0 }; SE.windWarn(); }
+  let windF = 0;
+  if (wind) {
+    wind.t += dt;
+    if (wind.t > 1.2 && !wind.blowing) { wind.blowing = true; SE.wind(); }
+    if (wind.blowing) {
+      const k = Math.sin(clamp((wind.t - 1.2) / 2.5, 0, 1) * Math.PI);
+      windF = wind.dir * (1.4 + 0.1 * stack.length) * k;
+      if (Math.random() < 0.5) streaks.push({ x: wind.dir > 0 ? -200 : W + 200, y: rand(H * 0.05, H * 0.8), len: rand(80, 200), vx: wind.dir * rand(900, 1400) });
+    }
+    if (wind.t > 3.7) { wind = null; nextWind = playT + rand(6, 10); }
+  }
+
+  // --- バランスの けいさん ---
+  const n = stack.length;
+  const G = Math.min(3.2, 0.9 + 0.2 * n) * Math.min(1, playT / 2);
+  const tl = head.tilt, tiltEff = Math.sign(tl) * Math.max(0, Math.abs(tl) - 0.05);
+  const axn = clamp(head.ax / head.hw, -40, 40);
+  const steps = 3, h = dt / steps;
+  for (let i = 0; i < steps; i++) {
+    const acc = G * Math.sin(theta) + 3.0 * tiltEff - 0.32 * axn - 2.2 * omega + windF;
+    omega += acc * h; theta += omega * h;
+  }
+  if (Math.abs(theta) > FALL_ANGLE) { collapse(); return; }
+
+  // --- ふってくる ものが のる ---
+  if (falling) {
+    falling.vy += 1400 * dt; falling.y += falling.vy * dt;
+    const top = topPoint();
+    falling.x += (top.x - falling.x) * Math.min(1, dt * 8);
+    const S = itemScale();
+    if (falling.y + falling.it.h * S / 2 >= top.y) {
+      stack.push(falling.it); falling = null;
+      omega += rand(-0.25, 0.25) + theta * 0.4;
+      $("scoreTxt").textContent = stack.length; bump("scorePill"); SE.land(stack.length);
+    }
+  }
+}
+
+function itemScale() {
+  const base = head ? head.hw * 1.05 : 100;
+  const total = stack.reduce((s, it) => s + it.h, 0) || 1;
+  const room = head ? Math.max(60, head.y - 70) : H * 0.4;
+  return Math.min(base, room / total);
+}
+function layout() {
+  placed = [];
+  if (!head) return { x: W / 2, y: H / 2 };
+  const S = itemScale(), n = stack.length;
+  let cx = head.x, cy = head.y;
+  stack.forEach((it, i) => {
+    const f = (i + 1) / n;
+    const a = head.tilt * 0.7 * (1 - i / n) + theta * Math.pow(f, 0.8);
+    const ux = Math.sin(a), uy = -Math.cos(a);
+    const px = cx + ux * it.h * S / 2 + Math.cos(a) * it.ox * S, py = cy + uy * it.h * S / 2 + Math.sin(a) * it.ox * S;
+    placed.push({ it, x: px, y: py, a, S });
+    cx += ux * it.h * S; cy += uy * it.h * S;
+  });
+  return { x: cx, y: cy };
+}
+function topPoint() { return layout(); }
+
+function drawWindBadge(dir, t) {
+  const x = dir > 0 ? 60 : W - 60, y = H * 0.32;
+  const blink = t < 1.2 ? (Math.floor(t * 6) % 2 === 0) : true;
+  if (!blink) return;
+  ctx.save(); ctx.translate(x, y); ctx.scale(dir, 1);
+  ctx.beginPath(); ctx.arc(0, 0, 42, 0, Math.PI * 2); ctx.fillStyle = WHITE; ctx.fill(); ctx.lineWidth = 4; ctx.strokeStyle = INK; ctx.stroke();
+  ctx.lineCap = "round"; ctx.lineWidth = 6; ctx.strokeStyle = BLUE;
+  ctx.beginPath(); ctx.moveTo(-24, -12); ctx.lineTo(14, -12); ctx.moveTo(-18, 2); ctx.lineTo(20, 2); ctx.moveTo(-24, 16); ctx.lineTo(8, 16); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(14, -10); ctx.lineTo(26, 2); ctx.lineTo(14, 14); ctx.strokeStyle = INK; ctx.stroke();
+  ctx.restore();
+}
+function draw(now) {
+  // かぜの すじ
+  ctx.lineCap = "round";
+  for (const s of streaks) {
+    ctx.beginPath(); ctx.moveTo(s.x, s.y); ctx.lineTo(s.x - Math.sign(s.vx) * s.len, s.y);
+    ctx.lineWidth = 5; ctx.strokeStyle = WHITE; ctx.stroke();
+  }
+  if (wind) drawWindBadge(wind.dir, wind.t);
+
+  if (state === "crash") {
+    for (const d of debris) { ctx.save(); ctx.translate(d.x, d.y); ctx.rotate(d.a); drawItem(d.it, d.it.w * d.S, d.it.h * d.S); ctx.restore(); }
+    return;
+  }
+  if (!(state === "play" || state === "count") || !head) return;
+  const wob = 0.015 * Math.sin(now / 160) * Math.min(1, stack.length / 6);
+  layout();
+  for (const p of placed) {
+    ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.a + wob); drawItem(p.it, p.it.w * p.S, p.it.h * p.S); ctx.restore();
+  }
+  if (falling) {
+    const S = itemScale();
+    ctx.save(); ctx.translate(falling.x, falling.y); drawItem(falling.it, falling.it.w * S, falling.it.h * S); ctx.restore();
+  }
+  // かたむき メーター（あたまの上の 小さな バー）
+  if (state === "play") {
+    const bw = Math.max(120, head.hw * 2), bx = head.x - bw / 2, by = Math.min(H - 30, head.y + head.hw * 1.9);
+    ctx.beginPath(); ctx.roundRect(bx, by, bw, 14, 7); ctx.fillStyle = WHITE; ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = INK; ctx.stroke();
+    const k = clamp(theta / FALL_ANGLE, -1, 1);
+    const danger = Math.abs(k) > 0.65;
+    ctx.beginPath(); ctx.arc(head.x + k * (bw / 2 - 7), by + 7, 11, 0, Math.PI * 2);
+    ctx.fillStyle = danger ? RED : GREEN; ctx.fill(); ctx.stroke();
+  }
+}
+
+function loop(now) {
+  requestAnimationFrame(loop);
+  updateCover(); drawVideo();
+  const fresh = detect();
+  update(now, fresh); draw(now);
+}
+requestAnimationFrame(loop);
+
+$("startBtn").addEventListener("click", startGame);
+$("againBtn").addEventListener("click", startGame);
+init();
+</script>
+</body>
+</html>
