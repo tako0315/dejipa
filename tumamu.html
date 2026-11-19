@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>つまんで顔のばし</title>
+<style>
+:root{--bg:#f6f4ef;--fg:#222;--card:#fff;--accent:#e8590c;--muted:#666;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#17171a;--fg:#eee;--card:#25252a;--accent:#ff8c42;--muted:#aaa}}
+:root[data-theme="dark"]{--bg:#17171a;--fg:#eee;--card:#25252a;--accent:#ff8c42;--muted:#aaa}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;display:flex;flex-direction:column;align-items:center;gap:12px;padding:16px}
+h1{font-size:1.3rem;margin:4px 0}
+.wrap{position:relative;width:100%;max-width:720px;max-height:72vh;background:var(--card);border-radius:16px;overflow:hidden;aspect-ratio:4/3}
+canvas{width:100%;height:100%;display:block;object-fit:contain}
+#start{position:absolute;inset:0;margin:auto;width:220px;height:56px;border:0;border-radius:28px;background:var(--accent);color:#fff;font-size:1.05rem;font-weight:700;cursor:pointer}
+#status{color:var(--muted);font-size:.9rem;text-align:center;max-width:720px;margin:0}
+.tips{max-width:720px;font-size:.9rem;line-height:1.7;background:var(--card);border-radius:12px;padding:12px 16px;margin:0}
+video{display:none}
+</style>
+</head>
+<body>
+<h1>つまんで顔のばし</h1>
+<div class="wrap" id="wrap">
+  <canvas id="out" width="640" height="480"></canvas>
+  <button id="start">カメラをオンにする</button>
+</div>
+<p id="status">ボタンを押してカメラを許可してください(映像は端末内だけで処理され、送信されません)</p>
+<p class="tips">① 顔の前で親指と人差し指をくっつける(つまむ)<br>② つまんだまま手を動かす:上に動かすと縦にのび、下で縮む。右で横にのび、左で縮む<br>③ 指を離すと元にもどる</p>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.js" crossorigin="anonymous"></script>
+<script>
+// キャンバスサイズはカメラ映像の実際の縦横比に合わせて変える(スマホの縦向き映像が横に伸びないように)
+let W=640,H=480,R=150;
+const wrap=document.getElementById('wrap');
+const out=document.getElementById('out'),ctx=out.getContext('2d');
+const video=document.createElement('video');video.playsInline=true;video.muted=true;
+const buf=document.createElement('canvas');buf.width=W;buf.height=H;const bctx=buf.getContext('2d');
+const tmp=document.createElement('canvas');tmp.width=W;tmp.height=H;const tctx=tmp.getContext('2d');
+const statusEl=document.getElementById('status');
+let hand=null,pinching=false,cx=W/2,cy=H/2,hx0=0,hy0=0,tx=1,ty=1,sx=1,sy=1,busy=false;
+let lastVW=0,lastVH=0;
+
+function fitToVideo(){
+  const vw=video.videoWidth,vh=video.videoHeight;
+  if(!vw||!vh||(vw===lastVW&&vh===lastVH))return;
+  lastVW=vw;lastVH=vh;
+  const LONG=640;
+  if(vw>=vh){W=LONG;H=Math.round(LONG*vh/vw);}
+  else{H=LONG;W=Math.round(LONG*vw/vh);}
+  for(const c of [out,buf,tmp]){c.width=W;c.height=H;}
+  R=150*Math.min(W,H)/480;
+  cx=W/2;cy=H/2;
+  wrap.style.aspectRatio=`${W}/${H}`;
+}
+
+function onResults(r){
+  const l=r.multiHandLandmarks&&r.multiHandLandmarks[0];
+  if(!l){hand=null;pinching=false;return;}
+  const p=i=>({x:(1-l[i].x)*W,y:l[i].y*H});
+  const t=p(4),i=p(8),w=p(0),m=p(9);
+  const size=Math.hypot(w.x-m.x,w.y-m.y)||1;
+  const d=Math.hypot(t.x-i.x,t.y-i.y)/size;
+  const pt={x:(t.x+i.x)/2,y:(t.y+i.y)/2};
+  const was=pinching;
+  if(!pinching&&d<0.3)pinching=true;
+  else if(pinching&&d>0.5)pinching=false;
+  if(pinching&&!was){cx=pt.x;cy=pt.y;hx0=pt.x;hy0=pt.y;}
+  if(pinching){
+    const dx=(pt.x-hx0)/W,dy=(pt.y-hy0)/H;
+    tx=Math.min(2.8,Math.max(0.4,Math.exp(dx*3)));
+    ty=Math.min(2.8,Math.max(0.4,Math.exp(-dy*3)));
+  }
+  hand={t,i,pt,d};
+}
+
+function warp(){
+  // pass 1: vertical
+  tctx.clearRect(0,0,W,H);
+  for(let y=0;y<H;y+=2){
+    const g=1+(sy-1)*Math.exp(-Math.pow((y-cy)/R,2));
+    const s=cy+(y-cy)/g;
+    tctx.drawImage(buf,0,s,W,Math.max(1,2/g),0,y,W,2);
+  }
+  // pass 2: horizontal
+  ctx.clearRect(0,0,W,H);
+  for(let x=0;x<W;x+=2){
+    const g=1+(sx-1)*Math.exp(-Math.pow((x-cx)/R,2));
+    const s=cx+(x-cx)/g;
+    ctx.drawImage(tmp,s,0,Math.max(1,2/g),H,x,0,2,H);
+  }
+}
+
+function frame(){
+  fitToVideo(); // 画面の回転などで映像サイズが変わったら追従
+  bctx.save();bctx.translate(W,0);bctx.scale(-1,1);bctx.drawImage(video,0,0,W,H);bctx.restore();
+  if(!pinching){tx+=(1-tx)*0.15;ty+=(1-ty)*0.15;}
+  sx+=(tx-sx)*0.35;sy+=(ty-sy)*0.35;
+  if(Math.abs(sx-1)<0.01&&Math.abs(sy-1)<0.01&&!pinching){sx=sy=1;ctx.drawImage(buf,0,0);}
+  else warp();
+  if(hand){
+    ctx.fillStyle=pinching?'#ff3b30':'#ffffff';ctx.strokeStyle='#000';ctx.lineWidth=2;
+    for(const q of [hand.t,hand.i]){ctx.beginPath();ctx.arc(q.x,q.y,7,0,7);ctx.fill();ctx.stroke();}
+  }
+  if(!busy&&video.readyState>=2){busy=true;hands.send({image:video}).finally(()=>busy=false);}
+  requestAnimationFrame(frame);
+}
+
+let hands;
+document.getElementById('start').onclick=async function(){
+  this.disabled=true;statusEl.textContent='カメラとモデルを準備中…';
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:640},height:{ideal:480},facingMode:'user'},audio:false});
+    video.srcObject=stream;await video.play();
+    fitToVideo();
+    hands=new Hands({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/${f}`});
+    hands.setOptions({maxNumHands:1,modelComplexity:1,minDetectionConfidence:0.6,minTrackingConfidence:0.5});
+    hands.onResults(onResults);
+    await hands.initialize();
+    this.style.display='none';
+    statusEl.textContent='手を映して、親指と人差し指をつまんでみて!';
+    frame();
+  }catch(e){
+    console.error(e);
+    this.disabled=false;
+    statusEl.textContent='カメラまたは手の検出モデルを開始できませんでした。カメラの許可を確認するか、ページを新しいタブで開いてください。';
+  }
+};
+</script>
+</body>
+</html>
